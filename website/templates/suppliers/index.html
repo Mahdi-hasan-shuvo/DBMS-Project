@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% from "_macros.html" import kcard, pager, crumbs, empty, delete_form %}
+{% block title %}Suppliers{% endblock %}
+{% block content %}
+{{ crumbs([('Dashboard', url_for('dashboard.index')), ('Suppliers Management', none)]) }}
+<div class="page-head">
+  <div>
+    <h1 class="page-title">Suppliers Management</h1>
+    <p class="page-sub">Manage pharmaceutical distributors, contact details and supplier purchase orders
+      (<span class="tbl-chip">suppliers</span> table).</p>
+  </div>
+  <div class="d-flex gap-2 flex-wrap">
+    <a class="btn btn-soft" href="{{ url_for('suppliers.export', **request.args) }}"><i class="bi bi-download me-2"></i>Export Directory</a>
+    <button class="btn btn-brand" type="button" data-bs-toggle="modal" data-bs-target="#supplierModal"
+            data-action="{{ url_for('suppliers.create') }}" data-title="Add Supplier"><i class="bi bi-plus-circle me-2"></i>Add Supplier</button>
+  </div>
+</div>
+
+<div class="row g-3 mb-4 row-cols-1 row-cols-sm-2 row-cols-xl-4">
+  <div class="col">
+    {% call kcard('Total Suppliers', kpi.total, 'bi-truck') %}
+      <span class="pill pill-success no-dot"><i class="bi bi-patch-check"></i> {{ kpi.active }} active</span>
+      {% if kpi.on_hold %}<span class="pill pill-warning no-dot ms-1">{{ kpi.on_hold }} on hold</span>{% endif %}
+    {% endcall %}
+  </div>
+  <div class="col">
+    {% call kcard('Pending Orders', kpi.drafts, 'bi-hourglass-split', '', 'warn' if kpi.drafts else '') %}
+      <span class="tw-text-amber-800">Draft POs worth {{ kpi.draft_value | money }} awaiting delivery</span>
+    {% endcall %}
+  </div>
+  <div class="col">{{ kcard('Total Purchases', kpi.spent | money, 'bi-cash-stack', '', 'info', 'Procurement across ' ~ kpi.received ~ ' received invoices') }}</div>
+  <div class="col">{{ kcard('Cities Covered', cities | length, 'bi-geo-alt', 'regions', '', 'Distribution network') }}</div>
+</div>
+
+<form class="card-pc mb-4" method="get" data-autosubmit>
+  <div class="card-body-pc">
+    <div class="row g-3 align-items-end">
+      <div class="col-lg-5">
+        <label class="form-label caps" for="f_q">Search</label>
+        <div class="input-icon"><i class="bi bi-search"></i>
+          <input class="form-control" id="f_q" name="q" value="{{ f.q }}" placeholder="Search by supplier name, contact, phone, email">
+        </div>
+      </div>
+      <div class="col-sm-4 col-lg-2">
+        <label class="form-label caps" for="f_status">Status</label>
+        <select class="form-select" id="f_status" name="status">
+          <option value="">All statuses</option>
+          {% for s in statuses %}<option {{ 'selected' if f.status == s }}>{{ s }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-sm-4 col-lg-2">
+        <label class="form-label caps" for="f_city">City</label>
+        <select class="form-select" id="f_city" name="city">
+          <option value="">All regions</option>
+          {% for c in cities %}<option {{ 'selected' if f.city == c }}>{{ c }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-sm-4 col-lg-2">
+        <label class="form-label caps" for="f_sort">Sort by</label>
+        <select class="form-select" id="f_sort" name="sort">
+          {% for v, l in [('name', 'Supplier name (A-Z)'), ('spend', 'Total spend'), ('recent', 'Last purchase'), ('newest', 'Newest added')] %}
+            <option value="{{ v }}" {{ 'selected' if f.sort == v }}>{{ l }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-lg-1 d-flex gap-2">
+        <a class="btn btn-soft w-100" href="{{ url_for('suppliers.index') }}" title="Reset filters" aria-label="Reset filters"><i class="bi bi-arrow-counterclockwise"></i></a>
+      </div>
+    </div>
+  </div>
+</form>
+
+<section class="card-pc">
+  <div class="card-head">
+    <span class="tw-text-xs fw-bold text-uppercase text-muted-2">Database table:</span>
+    <span class="tbl-chip">suppliers ({{ page.total }} records)</span>
+    <span class="ms-auto tw-text-[13px] d-flex gap-3"><span><span class="dot me-1"></span>{{ kpi.active }} Active</span><span><span class="dot dot-amber me-1"></span>{{ kpi.on_hold }} On Hold</span></span>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-pc">
+      <thead><tr><th>Supplier ID</th><th>Distributor / Company</th><th>Contact Person</th><th>Phone &amp; Email</th><th>Address &amp; City</th><th>Terms</th><th class="text-end">Total Purchased</th><th>Status</th><th class="text-end">Actions</th></tr></thead>
+      <tbody>
+      {% for s in rows %}
+        <tr>
+          <td><span class="mono fw-bold tw-text-brand-700 tw-text-[12.5px]">{{ s.supplier_id | code('supplier') }}</span></td>
+          <td>
+            <a class="cell-title" href="{{ url_for('suppliers.detail', supplier_id=s.supplier_id) }}">{{ s.supplier_name }}</a>
+            <div class="cell-sub">{{ s.orders }} received orders{% if s.drafts %} · {{ s.drafts }} draft{% endif %}</div>
+          </td>
+          <td>{{ s.contact_person or '—' }}</td>
+          <td class="tw-text-[13px]">
+            <div><i class="bi bi-telephone me-1 text-muted-2"></i>{{ s.phone }}</div>
+            {% if s.email %}<div class="cell-sub"><i class="bi bi-envelope me-1"></i>{{ s.email }}</div>{% endif %}
+          </td>
+          <td class="tw-text-[13px]">{{ s.address or '—' }}<div class="cell-sub">{{ s.city or '' }}</div></td>
+          <td><span class="form-tag">{{ s.payment_terms }}</span></td>
+          <td class="text-end">
+            <div class="num fw-semibold">{{ s.total_spent | money }}</div>
+            <div class="cell-sub">{{ ('Last: ' ~ (s.last_purchase | date)) if s.last_purchase else 'No orders yet' }}</div>
+          </td>
+          <td><span class="pill {{ 'pill-success' if s.status == 'Active' else 'pill-warning' }}">{{ s.status }}</span></td>
+          <td class="text-end text-nowrap">
+            <a class="btn-icon" href="{{ url_for('suppliers.detail', supplier_id=s.supplier_id) }}" title="View" aria-label="View"><i class="bi bi-eye"></i></a>
+            <button type="button" class="btn-icon" title="Edit" aria-label="Edit" data-bs-toggle="modal" data-bs-target="#supplierModal"
+                    data-action="{{ url_for('suppliers.update', supplier_id=s.supplier_id) }}" data-title="Edit {{ s.supplier_name }}"
+                    data-record='{{ s | tojson }}'><i class="bi bi-pencil-square"></i></button>
+            {{ delete_form(url_for('suppliers.delete', supplier_id=s.supplier_id), 'Delete supplier ' ~ s.supplier_name ~ '?') }}
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="9">{{ empty('No suppliers match these filters.', 'bi-search') }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {{ pager(page, 'suppliers') }}
+</section>
+{% include "partials/supplier_modal.html" %}
+{% endblock %}

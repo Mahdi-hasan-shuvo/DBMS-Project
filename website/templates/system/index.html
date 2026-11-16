@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% from "_macros.html" import kcard, crumbs, sql_panel %}
+{% block title %}Database & Schema{% endblock %}
+{% block content %}
+{{ crumbs([('Dashboard', url_for('dashboard.index')), ('Database & Schema', none)]) }}
+<div class="page-head">
+  <div>
+    <h1 class="page-title">Database &amp; Schema</h1>
+    <p class="page-sub">Normalized relational schema (3NF) with primary keys, foreign keys, CHECK constraints and indexes.
+      Connected to <b>{{ db_engine }}</b> · <span class="mono tw-text-xs">{{ connection }}</span></p>
+  </div>
+  <a class="btn btn-brand" href="{{ url_for('system.backup') }}"><i class="bi bi-database-down me-2"></i>Download SQL Backup</a>
+</div>
+
+<div class="row g-3 mb-4 row-cols-1 row-cols-sm-3">
+  <div class="col">{{ kcard('Tables', tables | length, 'bi-table', 'relations') }}</div>
+  <div class="col">{{ kcard('Total rows', tables | sum(attribute='rows') | num, 'bi-list-ol') }}</div>
+  <div class="col">
+    {% if mismatches %}
+      {{ kcard('Stock integrity check', mismatches | length ~ ' mismatch(es)', 'bi-exclamation-octagon', '', 'danger', 'stock_quantity differs from purchases − sales') }}
+    {% else %}
+      {{ kcard('Stock integrity check', 'Passed', 'bi-shield-check', '', '', 'stock = received purchases − sales for every medicine') }}
+    {% endif %}
+  </div>
+</div>
+
+<div class="row g-4">
+  <div class="col-xl-7">
+    <section class="card-pc mb-4">
+      <div class="card-head"><h2 class="me-auto">Tables &amp; Relationships</h2><span class="tbl-chip">{{ schema_file }}</span></div>
+      <div class="table-responsive">
+        <table class="table table-pc">
+          <thead><tr><th>Table</th><th>Primary key</th><th>Foreign keys</th><th class="text-end">Rows</th></tr></thead>
+          <tbody>
+          {% for t in tables %}
+            <tr>
+              <td><span class="tbl-chip">{{ t.name }}</span><div class="cell-sub mt-1">{{ t.purpose }}</div></td>
+              <td class="mono tw-text-xs">{{ t.pk }}</td>
+              <td class="tw-text-xs">
+                {% for col, ref, rule in t.fks %}<div class="mono">{{ col }} → {{ ref }} <span class="pill {{ 'pill-info' if rule == 'CASCADE' else 'pill-muted' }} no-dot py-0">ON DELETE {{ rule }}</span></div>
+                {% else %}<span class="text-muted-2">—</span>{% endfor %}
+              </td>
+              <td class="text-end num">{{ t.rows | num }}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+    {% if mismatches %}
+    <section class="card-pc mb-4">
+      <div class="card-head"><h2 class="text-danger">Stock mismatches</h2></div>
+      <div class="table-responsive"><table class="table table-pc">
+        <thead><tr><th>Medicine</th><th class="text-end">stock_quantity</th><th class="text-end">purchases − sales</th></tr></thead>
+        <tbody>{% for m in mismatches %}<tr><td>{{ m.medicine_name }}</td><td class="text-end num">{{ m.stock_quantity }}</td><td class="text-end num">{{ m.expected }}</td></tr>{% endfor %}</tbody>
+      </table></div>
+      <div class="card-body-pc tw-text-xs text-muted-2">Medicines created with an opening stock show here because that stock has no purchase record.</div>
+    </section>
+    {% endif %}
+  </div>
+  <div class="col-xl-5">
+    <section class="card-pc mb-4">
+      <div class="card-head"><h2>Entity Relationship Overview</h2></div>
+      <div class="card-body-pc">
+        <svg viewBox="0 0 420 330" class="w-100" role="img" aria-label="ER diagram of the pharmacy schema" style="font-family: Inter, sans-serif">
+          <defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#047857"/></marker></defs>
+          <g font-size="12" font-weight="600">
+            {% for x, y, label in [(10, 10, 'categories'), (150, 10, 'medicines'), (290, 10, 'suppliers'), (290, 120, 'purchases'), (150, 120, 'purchase_items'), (10, 230, 'customers'), (150, 230, 'sale_items'), (290, 230, 'sales')] %}
+              <rect x="{{ x }}" y="{{ y }}" width="120" height="44" rx="10" fill="#ecfdf5" stroke="#6ee7b7"/>
+              <text x="{{ x + 60 }}" y="{{ y + 27 }}" text-anchor="middle" fill="#065f46">{{ label }}</text>
+            {% endfor %}
+          </g>
+          <g stroke="#047857" stroke-width="1.6" fill="none" marker-end="url(#arr)">
+            <path d="M130 32 H148"/>                      <!-- categories -> medicines -->
+            <path d="M350 54 V118"/>                      <!-- suppliers -> purchases -->
+            <path d="M290 142 H272"/>                     <!-- purchases -> purchase_items -->
+            <path d="M210 54 V118"/>                      <!-- medicines -> purchase_items -->
+            <path d="M190 54 C 120 120, 120 200, 190 228"/> <!-- medicines -> sale_items -->
+            <path d="M290 252 H272"/>                     <!-- sales -> sale_items -->
+            <path d="M130 252 C 200 300, 280 300, 330 276"/> <!-- customers -> sales -->
+          </g>
+          <text x="210" y="322" text-anchor="middle" font-size="11" fill="#5b6b65">Arrows point from the "one" side to the "many" side (1 : N)</text>
+        </svg>
+      </div>
+    </section>
+  </div>
+</div>
+
+<section class="card-pc card-body-pc">
+  {{ sql_panel(schema_sql, 'database/schema_mysql.sql') }}
+</section>
+{% endblock %}

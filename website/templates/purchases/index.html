@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% from "_macros.html" import kcard, pager, crumbs, empty %}
+{% block title %}Purchases{% endblock %}
+{% block content %}
+{{ crumbs([('Dashboard', url_for('dashboard.index')), ('Procurement & Purchases', none), ('purchases & purchase_items', none)]) }}
+<div class="page-head">
+  <div class="d-flex gap-3 align-items-start">
+    <span class="kpi-icon position-static tw-h-12 tw-w-12"><i class="bi bi-cart3"></i></span>
+    <div>
+      <h1 class="page-title">Purchase &amp; Procurement Management</h1>
+      <p class="page-sub">Purchase orders, supplier stock receipts and multi-item invoices
+        (<span class="tbl-chip">purchases</span> &amp; <span class="tbl-chip">purchase_items</span>) with atomic stock updates.</p>
+    </div>
+  </div>
+  <div class="d-flex gap-2 flex-wrap">
+    <a class="btn btn-soft" href="{{ url_for('purchases.export', **request.args) }}"><i class="bi bi-download me-2"></i>Download Purchase Report CSV</a>
+    <a class="btn btn-brand" href="{{ url_for('purchases.new') }}"><i class="bi bi-plus-lg me-2"></i>Create New Purchase Order</a>
+  </div>
+</div>
+
+<div class="row g-3 mb-4 row-cols-1 row-cols-sm-2 row-cols-xl-4">
+  <div class="col">{{ kcard('Total Purchases YTD', kpi.ytd | money, 'bi-cash-stack', '', '', kpi.ytd_count ~ ' received invoices this year') }}</div>
+  <div class="col">
+    {% call kcard('Received / Stock In', kpi.received, 'bi-box-arrow-in-down', 'orders') %}
+      <span class="tw-text-brand-700"><i class="bi bi-check-circle me-1"></i>{{ kpi.units_in | num }} units added to inventory</span>
+    {% endcall %}
+  </div>
+  <div class="col">
+    {% call kcard('Draft Orders', kpi.drafts, 'bi-pencil-square', 'orders', 'warn' if kpi.drafts else '') %}
+      Stock unaffected · {{ kpi.draft_value | money }} pending
+    {% endcall %}
+  </div>
+  <div class="col">{{ kcard('All Purchase Records', kpi.total, 'bi-journal-text', 'rows', 'info', 'Each header has 1..N purchase_items') }}</div>
+</div>
+
+<div class="seg mb-3">
+  <a href="{{ url_for('purchases.index') }}" class="{{ 'active' if not f.status }}">All Purchases <span class="count">{{ kpi.total }}</span></a>
+  <a href="{{ url_for('purchases.index', status='Received') }}" class="{{ 'active' if f.status == 'Received' }}">Received <span class="count">{{ kpi.received }}</span></a>
+  <a href="{{ url_for('purchases.index', status='Draft') }}" class="{{ 'active' if f.status == 'Draft' }}">Drafts <span class="count">{{ kpi.drafts }}</span></a>
+  <a href="{{ url_for('purchases.new') }}"><i class="bi bi-plus-square"></i> New Purchase Order (multi-item)</a>
+</div>
+
+<form class="card-pc mb-4" method="get" data-autosubmit>
+  <input type="hidden" name="status" value="{{ f.status }}">
+  <div class="card-body-pc">
+    <div class="row g-3 align-items-end">
+      <div class="col-lg-5">
+        <div class="input-icon"><i class="bi bi-search"></i>
+          <input class="form-control" name="q" value="{{ f.q }}" placeholder="Search by PO number, invoice # or supplier" aria-label="Search purchases">
+        </div>
+      </div>
+      <div class="col-sm-6 col-lg-3">
+        <label class="form-label caps" for="f_sup">Supplier</label>
+        <select class="form-select" id="f_sup" name="supplier">
+          <option value="">All suppliers</option>
+          {% for s in suppliers %}<option value="{{ s.supplier_id }}" {{ 'selected' if f.supplier == s.supplier_id }}>{{ s.supplier_name }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-sm-6 col-lg-3">
+        <label class="form-label caps" for="f_period">Date</label>
+        <select class="form-select" id="f_period" name="period">
+          {% for v, l in [('', 'All time'), ('month', 'This month (' ~ today.strftime('%b %Y') ~ ')'), ('30', 'Last 30 days'), ('year', 'This year')] %}
+            <option value="{{ v }}" {{ 'selected' if f.period == v }}>{{ l }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-lg-1"><a class="btn btn-soft w-100" href="{{ url_for('purchases.index') }}" title="Reset filters" aria-label="Reset filters"><i class="bi bi-arrow-counterclockwise"></i></a></div>
+    </div>
+  </div>
+</form>
+
+<section class="card-pc">
+  <div class="table-responsive">
+    <table class="table table-pc">
+      <thead><tr><th>Purchase ID</th><th>Supplier Name</th><th>Invoice / Bill #</th><th>Date</th><th>Items &amp; Qty</th><th class="text-end">Total Amount</th><th>Stock Impact Status</th><th class="text-end">Actions</th></tr></thead>
+      <tbody>
+      {% for p in rows %}
+        <tr class="{{ 'row-warn' if p.status == 'Draft' }}">
+          <td><a class="id-chip" href="{{ url_for('purchases.detail', purchase_id=p.purchase_id) }}">{{ p.po_number }}</a></td>
+          <td>
+            <div class="d-flex align-items-center gap-2">
+              <span class="avatar avatar-sm tw-rounded-lg">{{ p.supplier_name[:3] | upper }}</span>
+              <span class="cell-title">{{ p.supplier_name }}</span>
+            </div>
+          </td>
+          <td class="mono tw-text-xs">{{ p.invoice_no or 'Pending bill' }}</td>
+          <td>{{ p.purchase_date | date }}</td>
+          <td>{{ p.line_count }} medicines<div class="cell-sub">{{ p.units }} units {{ 'received' if p.status == 'Received' else 'staged' }}</div></td>
+          <td class="text-end num fw-semibold">{{ p.total_amount | money }}</td>
+          <td>
+            {% if p.status == 'Received' %}<span class="pill pill-success">Stock Updated (ACID)</span>
+            {% else %}<span class="pill pill-warning">Draft (No Stock Impact)</span>{% endif %}
+          </td>
+          <td class="text-end text-nowrap">
+            <a class="btn-icon" href="{{ url_for('purchases.detail', purchase_id=p.purchase_id) }}" title="View / print" aria-label="View"><i class="bi bi-eye"></i></a>
+            {% if p.status == 'Draft' %}
+              <form method="post" action="{{ url_for('purchases.receive', purchase_id=p.purchase_id) }}" class="d-inline" data-confirm="Mark {{ p.po_number }} as received and add its quantities to stock?">
+                <button class="btn-icon" title="Mark received" aria-label="Mark received"><i class="bi bi-check2-square tw-text-brand-700"></i></button>
+              </form>
+              <form method="post" action="{{ url_for('purchases.delete', purchase_id=p.purchase_id) }}" class="d-inline" data-confirm="Delete draft {{ p.po_number }}?">
+                <button class="btn-icon danger" title="Delete draft" aria-label="Delete draft"><i class="bi bi-trash3"></i></button>
+              </form>
+            {% endif %}
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="8">{{ empty('No purchase orders match these filters.', 'bi-search') }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {{ pager(page, 'entries') }}
+</section>
+
+<div class="note-box mt-4">
+  <div class="fw-bold mb-2"><i class="bi bi-diagram-3 tw-text-brand-700 me-1"></i>Relational foreign key (FK) integrity constraints</div>
+  <div class="d-flex flex-wrap gap-2">
+    <span class="tbl-chip">purchases.supplier_id → suppliers.supplier_id (ON DELETE RESTRICT)</span>
+    <span class="tbl-chip">purchase_items.purchase_id → purchases.purchase_id (ON DELETE CASCADE)</span>
+    <span class="tbl-chip">purchase_items.medicine_id → medicines.medicine_id (ON DELETE RESTRICT)</span>
+  </div>
+</div>
+{% endblock %}

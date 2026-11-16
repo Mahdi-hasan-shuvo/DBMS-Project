@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% from "_macros.html" import crumbs %}
+{% block title %}{{ purchase.po_number }}{% endblock %}
+{% block content %}
+<div class="no-print">{{ crumbs([('Purchases', url_for('purchases.index')), (purchase.po_number, none)]) }}</div>
+<div class="invoice">
+  <div class="d-flex flex-wrap gap-2 justify-content-end mb-3 no-print">
+    {% if purchase.status == 'Draft' %}
+      <form method="post" action="{{ url_for('purchases.receive', purchase_id=purchase.purchase_id) }}" data-confirm="Mark as received and add quantities to stock?">
+        <button class="btn btn-brand"><i class="bi bi-check2-square me-2"></i>Mark as Received (Update Stock)</button>
+      </form>
+      <form method="post" action="{{ url_for('purchases.delete', purchase_id=purchase.purchase_id) }}" data-confirm="Delete this draft purchase?">
+        <button class="btn btn-soft text-danger"><i class="bi bi-trash3 me-2"></i>Delete Draft</button>
+      </form>
+    {% endif %}
+    <button class="btn btn-soft" type="button" data-print><i class="bi bi-printer me-2"></i>Print PO</button>
+    <a class="btn btn-soft" href="{{ url_for('purchases.new') }}"><i class="bi bi-plus-lg me-2"></i>New Purchase</a>
+  </div>
+
+  <div class="card-pc card-body-pc p-4 p-md-5">
+    <div class="invoice-head mb-4">
+      <div>
+        <div class="brand p-0 mb-2"><span class="brand-logo"><i class="bi bi-plus-lg"></i></span><span class="brand-name">{{ pharmacy_name }}</span></div>
+        <div class="text-muted-2 tw-text-[13px]">Purchase Order / Goods Receipt</div>
+      </div>
+      <div class="text-md-end">
+        <div class="tw-text-2xl fw-800 mono">{{ purchase.po_number }}</div>
+        <div class="text-muted-2">Date: {{ purchase.purchase_date | date }}</div>
+        <div class="mt-1">
+          {% if purchase.status == 'Received' %}<span class="pill pill-success">Received · stock updated</span>
+          {% else %}<span class="pill pill-warning">Draft · no stock impact</span>{% endif %}
+        </div>
+      </div>
+    </div>
+
+    <div class="row g-4 mb-4">
+      <div class="col-sm-6">
+        <div class="form-label caps">Supplier</div>
+        <a class="fw-bold d-block text-body" href="{{ url_for('suppliers.detail', supplier_id=purchase.supplier_id) }}">{{ purchase.supplier_name }}</a>
+        <div class="tw-text-[13px] text-muted-2">
+          {% if purchase.contact_person %}{{ purchase.contact_person }}<br>{% endif %}
+          {{ purchase.phone }}{% if purchase.email %} · {{ purchase.email }}{% endif %}<br>
+          {{ purchase.address or '' }}{{ ', ' if purchase.address and purchase.city }}{{ purchase.city or '' }}
+        </div>
+      </div>
+      <div class="col-sm-6 text-sm-end">
+        <div class="form-label caps">Reference</div>
+        <div class="tw-text-[13px]">Supplier invoice: <span class="mono">{{ purchase.invoice_no or '—' }}</span></div>
+        <div class="tw-text-[13px]">Payment terms: {{ purchase.payment_terms }}</div>
+        {% if purchase.notes %}<div class="tw-text-[13px] text-muted-2 mt-1">Note: {{ purchase.notes }}</div>{% endif %}
+      </div>
+    </div>
+
+    <div class="table-responsive">
+      <table class="table table-pc">
+        <thead><tr><th>#</th><th>Medicine</th><th>SKU</th><th class="text-end">Qty</th><th class="text-end">Unit Price</th><th class="text-end">Line Total</th></tr></thead>
+        <tbody>
+        {% for i in items %}
+          <tr>
+            <td class="text-muted-2">{{ loop.index }}</td>
+            <td><a class="cell-title" href="{{ url_for('medicines.detail', medicine_id=i.medicine_id) }}">{{ i.medicine_name }}</a><div class="cell-sub">{{ i.generic_name or '' }}</div></td>
+            <td class="mono tw-text-xs">{{ i.sku or '—' }}</td>
+            <td class="text-end num">{{ i.quantity }}</td>
+            <td class="text-end num">{{ i.unit_price | money }}</td>
+            <td class="text-end num fw-semibold">{{ i.line_total | money }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="row justify-content-end mt-3">
+      <div class="col-sm-6 col-lg-5">
+        <div class="d-flex justify-content-between py-1"><span>Subtotal ({{ items | sum(attribute='quantity') }} units)</span><span class="num">{{ purchase.subtotal | money }}</span></div>
+        <div class="d-flex justify-content-between py-1"><span>Tax</span><span class="num">{{ purchase.tax_amount | money }}</span></div>
+        <div class="d-flex justify-content-between py-1"><span>Shipping</span><span class="num">{{ purchase.shipping_cost | money }}</span></div>
+        <div class="d-flex justify-content-between border-top mt-2 pt-2 align-items-center"><b>Grand Total</b><span class="grand-total tw-text-2xl">{{ purchase.total_amount | money }}</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Dashboard{% endblock %} · {{ pharmacy_name }}</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23065f46'/%3E%3Cpath d='M13 7h6v6h6v6h-6v6h-6v-6H7v-6h6z' fill='white'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/bootstrap/bootstrap.min.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/bootstrap-icons/bootstrap-icons.min.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+  <script src="{{ url_for('static', filename='vendor/tailwind/tailwind.js') }}"></script>
+  <script>
+    tailwind.config = {
+      prefix: 'tw-',
+      corePlugins: { preflight: false },
+      theme: { extend: {
+        colors: { brand: { 50: '#ecfdf5', 100: '#d1fae5', 300: '#6ee7b7', 500: '#10b981', 600: '#047857', 700: '#065f46', 800: '#064e3b', 900: '#053a2c' } },
+        fontFamily: { mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'] }
+      } }
+    };
+  </script>
+  {% block head %}{% endblock %}
+</head>
+<body>
+{% set nav = [
+  ('dashboard.index', 'Dashboard', 'bi-grid-1x2', none, ''),
+  ('medicines.index', 'Medicines', 'bi-capsule', nav_counts.medicines, ''),
+  ('categories.index', 'Categories', 'bi-tags', nav_counts.categories, ''),
+  ('suppliers.index', 'Suppliers', 'bi-truck', nav_counts.suppliers, ''),
+  ('customers.index', 'Customers', 'bi-people', nav_counts.customers, ''),
+  ('purchases.index', 'Purchases', 'bi-cart3', nav_counts.purchases, ''),
+  ('sales.pos', 'Sales & Billing', 'bi-receipt', 'POS', 'pos'),
+  ('alerts.index', 'Inventory Alerts', 'bi-bell', nav_counts.alerts, 'alert-count'),
+  ('reports.index', 'Reports', 'bi-bar-chart-line', none, ''),
+] %}
+<div class="app-shell">
+  <aside class="sidebar-wrap offcanvas-lg offcanvas-start" id="sidebar" tabindex="-1" aria-label="Main navigation">
+    <div class="sidebar-inner">
+      <div class="d-flex align-items-start justify-content-between">
+        <a href="{{ url_for('dashboard.index') }}" class="brand">
+          <span class="brand-logo"><i class="bi bi-plus-lg"></i></span>
+          <span>
+            <span class="brand-name d-block">PharmaCare<br>DBMS</span>
+            <span class="brand-sub">Clinical Inventory v2.4</span>
+          </span>
+        </a>
+        <button type="button" class="btn-close d-lg-none mt-2" data-bs-dismiss="offcanvas" data-bs-target="#sidebar" aria-label="Close"></button>
+      </div>
+      <span class="env-chip"><span class="dot"></span> Univ. DBMS Project · {{ db_engine }}</span>
+      <ul class="nav-side">
+        {% for endpoint, label, icon, count, kind in nav %}
+          {% set active = request.blueprint == endpoint.split('.')[0] %}
+          <li>
+            <a href="{{ url_for(endpoint) }}" class="{{ 'active' if active }}" {% if active %}aria-current="page"{% endif %}>
+              <i class="bi {{ icon }}{{ '-fill' if active and icon in ('bi-grid-1x2', 'bi-capsule', 'bi-tags', 'bi-people', 'bi-bell', 'bi-receipt') }}"></i>
+              <span>{{ label }}</span>
+              {% if count is not none and count != '' %}
+                {% if kind == 'alert-count' and not count %}{% else %}
+                <span class="nav-count {{ kind }}">{{ count }}</span>
+                {% endif %}
+              {% endif %}
+            </a>
+          </li>
+        {% endfor %}
+      </ul>
+      <div class="side-bottom">
+        <div class="side-divider"></div>
+        <a href="{{ url_for('system.index') }}" class="nav-side-link d-flex align-items-center gap-2 px-2 py-1 {{ 'tw-text-brand-700 tw-font-bold' if request.blueprint == 'system' else 'tw-text-slate-700' }}">
+          <i class="bi bi-diagram-3"></i> Database &amp; Schema
+        </a>
+        <a href="{{ url_for('system.backup') }}" class="btn btn-soft w-100"><i class="bi bi-database-down me-1"></i> Database Backup <span class="tw-text-xs tw-text-slate-400 mono">.sql</span></a>
+        <div class="db-status">
+          <span class="dot {{ '' if db_ok else 'dot-red' }}"></span>
+          <span>{{ db_engine }}: {{ 'Connected' if db_ok else 'Offline' }}</span>
+          <span class="ms-auto mono tw-text-[11px] tw-text-brand-700">{{ 'InnoDB' if db_engine == 'MySQL' else 'local' }}</span>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <div class="main-col">
+    <header class="topbar">
+      <button class="icon-btn d-lg-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#sidebar" aria-controls="sidebar" aria-label="Open menu">
+        <i class="bi bi-list"></i>
+      </button>
+      <form class="top-search d-none d-md-block" action="{{ url_for('dashboard.search') }}" method="get" role="search">
+        <i class="bi bi-search"></i>
+        <input class="form-control" type="search" name="q" id="globalSearch" value="{{ request.args.q if request.endpoint == 'dashboard.search' else '' }}"
+               placeholder="Search medicines, customers, invoices..." aria-label="Global search">
+        <kbd>/</kbd>
+      </form>
+      <div class="ms-auto d-flex align-items-center gap-2">
+        <a href="{{ url_for('purchases.new') }}" class="btn btn-soft d-none d-xl-inline-flex align-items-center"><i class="bi bi-truck me-2"></i>New Purchase</a>
+        <button type="button" class="btn btn-soft d-none d-sm-inline-flex align-items-center" data-bs-toggle="modal" data-bs-target="#medicineModal"
+                data-action="{{ url_for('medicines.create') }}" data-title="Add New Medicine"><i class="bi bi-plus-circle me-2"></i>Add Medicine</button>
+        <a href="{{ url_for('sales.pos') }}" class="btn btn-brand d-inline-flex align-items-center"><i class="bi bi-cart-plus me-2"></i>New Sale</a>
+        <a href="{{ url_for('alerts.index') }}" class="icon-btn ms-1" title="Inventory alerts" aria-label="Inventory alerts">
+          <i class="bi bi-bell"></i>
+          {% if nav_counts.alerts %}<span class="badge-dot">{{ nav_counts.alerts }}</span>{% endif %}
+        </a>
+        <a href="{{ url_for('system.index') }}" class="icon-btn" title="Database & schema" aria-label="Database"><i class="bi bi-database"></i></a>
+        <div class="user-chip d-none d-md-flex">
+          <span class="avatar">PA</span>
+          <span class="lh-sm">
+            <span class="d-block fw-semibold">Pharmacist Admin</span>
+            <span class="tw-text-xs text-muted-2">PharmD · Admin</span>
+          </span>
+        </div>
+      </div>
+    </header>
+
+    <main class="content">
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        <div class="flash-stack mb-3">
+          {% for category, message in messages %}
+            {% set icon = {'success': 'bi-check-circle-fill', 'danger': 'bi-x-octagon-fill', 'warning': 'bi-exclamation-triangle-fill', 'info': 'bi-info-circle-fill'}[category] | default('bi-info-circle-fill') %}
+            <div class="alert alert-{{ category if category in ('success', 'danger', 'warning', 'info') else 'info' }} alert-dismissible fade show" role="alert">
+              <i class="bi {{ icon }}"></i><div>{{ message }}</div>
+              <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+          {% endfor %}
+        </div>
+        {% endif %}
+      {% endwith %}
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+</div>
+
+{% include "partials/medicine_modal.html" %}
+
+<script src="{{ url_for('static', filename='vendor/bootstrap/bootstrap.bundle.min.js') }}"></script>
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% from "_macros.html" import kcard, crumbs, empty, delete_form %}
+{% block title %}{{ sup.supplier_name }}{% endblock %}
+{% block content %}
+{{ crumbs([('Suppliers', url_for('suppliers.index')), (sup.supplier_name, none)]) }}
+<div class="page-head">
+  <div>
+    <div class="d-flex align-items-center gap-2 mb-1">
+      <span class="id-chip">{{ sup.supplier_id | code('supplier') }}</span>
+      <span class="pill {{ 'pill-success' if sup.status == 'Active' else 'pill-warning' }}">{{ sup.status }}</span>
+      <span class="form-tag">{{ sup.payment_terms }}</span>
+    </div>
+    <h1 class="page-title">{{ sup.supplier_name }}</h1>
+    <p class="page-sub">
+      {% if sup.contact_person %}<i class="bi bi-person me-1"></i>{{ sup.contact_person }} · {% endif %}
+      <i class="bi bi-telephone me-1"></i>{{ sup.phone }}
+      {% if sup.email %} · <i class="bi bi-envelope me-1"></i>{{ sup.email }}{% endif %}
+      {% if sup.address or sup.city %} · <i class="bi bi-geo-alt me-1"></i>{{ sup.address or '' }}{{ ', ' if sup.address and sup.city }}{{ sup.city or '' }}{% endif %}
+    </p>
+  </div>
+  <div class="d-flex flex-wrap gap-2">
+    <a class="btn btn-brand" href="{{ url_for('purchases.new', supplier_id=sup.supplier_id) }}"><i class="bi bi-plus-circle me-2"></i>New Purchase Order</a>
+    <button type="button" class="btn btn-soft" data-bs-toggle="modal" data-bs-target="#supplierModal"
+            data-action="{{ url_for('suppliers.update', supplier_id=sup.supplier_id) }}" data-title="Edit {{ sup.supplier_name }}"
+            data-record='{{ sup | tojson }}'><i class="bi bi-pencil-square me-2"></i>Edit</button>
+    {{ delete_form(url_for('suppliers.delete', supplier_id=sup.supplier_id), 'Delete supplier ' ~ sup.supplier_name ~ '?', 'Delete') }}
+  </div>
+</div>
+
+<div class="row g-3 mb-4 row-cols-1 row-cols-sm-3">
+  <div class="col">{{ kcard('Received orders', sup.orders, 'bi-box-seam') }}</div>
+  <div class="col">{{ kcard('Total purchased', sup.total_spent | money, 'bi-cash-stack', '', 'info') }}</div>
+  <div class="col">{{ kcard('Last purchase', (sup.last_purchase | date) if sup.last_purchase else '—', 'bi-calendar-check', '', 'warn' if sup.drafts else '', (sup.drafts ~ ' draft order(s) pending') if sup.drafts else 'No pending drafts') }}</div>
+</div>
+
+<div class="row g-4">
+  <div class="col-xl-8">
+    <section class="card-pc">
+      <div class="card-head"><h2 class="me-auto">Purchase Orders</h2><span class="tbl-chip">purchases WHERE supplier_id = {{ sup.supplier_id }}</span></div>
+      <div class="table-responsive">
+        <table class="table table-pc">
+          <thead><tr><th>PO Number</th><th>Supplier Invoice</th><th>Date</th><th>Items &amp; Qty</th><th class="text-end">Total</th><th>Status</th></tr></thead>
+          <tbody>
+          {% for p in purchases %}
+            <tr>
+              <td><a class="mono fw-semibold tw-text-[12.5px]" href="{{ url_for('purchases.detail', purchase_id=p.purchase_id) }}">{{ p.po_number }}</a></td>
+              <td class="mono tw-text-xs">{{ p.invoice_no or '—' }}</td>
+              <td>{{ p.purchase_date | date }}</td>
+              <td>{{ p.line_count }} medicines<div class="cell-sub">{{ p.units }} units</div></td>
+              <td class="text-end num">{{ p.total_amount | money }}</td>
+              <td><span class="pill {{ 'pill-success' if p.status == 'Received' else 'pill-warning' }}">{{ p.status }}</span></td>
+            </tr>
+          {% else %}<tr><td colspan="6">{{ empty('No purchase orders for this supplier yet.') }}</td></tr>{% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+  <div class="col-xl-4">
+    <section class="card-pc">
+      <div class="card-head"><h2>Top Supplied Medicines</h2></div>
+      <div class="card-body-pc">
+        {% for m in top_items %}
+          <div class="alert-item">
+            <div><a class="title text-body" href="{{ url_for('medicines.detail', medicine_id=m.medicine_id) }}">{{ m.medicine_name }}</a><div class="meta">{{ m.units }} units received</div></div>
+            <span class="num fw-semibold tw-text-brand-700">{{ m.spent | money }}</span>
+          </div>
+        {% else %}{{ empty('Nothing received yet.') }}{% endfor %}
+      </div>
+    </section>
+  </div>
+</div>
+{% include "partials/supplier_modal.html" %}
+{% endblock %}

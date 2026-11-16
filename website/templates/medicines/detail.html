@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% from "_macros.html" import kcard, crumbs, empty, stock_pill, stock_meter, delete_form %}
+{% block title %}{{ med.medicine_name }}{% endblock %}
+{% block content %}
+{% set st = stock_status(med) %}
+{% set d = days_until(med.expiry_date) %}
+{{ crumbs([('Medicines', url_for('medicines.index')), (med.medicine_name, none)]) }}
+<div class="page-head">
+  <div>
+    <div class="d-flex align-items-center gap-2 flex-wrap mb-1">
+      <span class="id-chip">{{ med.medicine_id | code('medicine') }}</span>
+      <span class="cat-pill">{{ med.category_name }}</span>
+      {{ stock_pill(st) }}
+    </div>
+    <h1 class="page-title">{{ med.medicine_name }}</h1>
+    <p class="page-sub">{{ med.generic_name or 'No generic name' }}{% if med.dosage_form %} · {{ med.dosage_form }}{% endif %}{% if med.manufacturer %} · {{ med.manufacturer }}{% endif %}</p>
+  </div>
+  <div class="d-flex flex-wrap gap-2">
+    <a class="btn btn-soft" href="{{ url_for('purchases.new', medicine_id=med.medicine_id) }}"><i class="bi bi-truck me-2"></i>Reorder</a>
+    <button type="button" class="btn btn-brand" data-bs-toggle="modal" data-bs-target="#medicineModal"
+            data-action="{{ url_for('medicines.update', medicine_id=med.medicine_id) }}" data-title="Edit {{ med.medicine_name }}"
+            data-record='{{ med | tojson }}'><i class="bi bi-pencil-square me-2"></i>Edit</button>
+    {{ delete_form(url_for('medicines.delete', medicine_id=med.medicine_id), 'Delete ' ~ med.medicine_name ~ '?', 'Delete') }}
+  </div>
+</div>
+
+<div class="row g-3 mb-4 row-cols-2 row-cols-lg-4">
+  <div class="col">
+    {% call kcard('Stock on hand', med.stock_quantity, 'bi-box-seam', 'units', 'warn' if st == 'low' else ('danger' if st in ('out', 'expired') else '')) %}
+      {{ stock_meter(med.stock_quantity, med.reorder_level) }}
+    {% endcall %}
+  </div>
+  <div class="col">{{ kcard('Selling price', med.price | money, 'bi-tag', '', '', 'Cost ' ~ (med.cost_price | money) ~ ' · margin ' ~ ((med.price - med.cost_price) | money)) }}</div>
+  <div class="col">{{ kcard('Units sold (all time)', totals.sold | num, 'bi-graph-up', '', 'info', 'Revenue ' ~ (totals.revenue | money)) }}</div>
+  <div class="col">{{ kcard('Expiry date', med.expiry_date | date, 'bi-calendar-event', '', 'danger' if d is not none and d <= 30 else '', ('Expired ' ~ (-d) ~ ' days ago') if d < 0 else (d ~ ' days remaining · ' ~ (med.batch_no or 'no lot'))) }}</div>
+</div>
+
+<div class="note-box mb-4 mono tw-text-xs">
+  Stock check: received purchases ({{ totals.purchased }}) − units sold ({{ totals.sold }}) = {{ totals.purchased - totals.sold }}
+  {% if totals.purchased - totals.sold == med.stock_quantity %}<span class="tw-text-brand-700 fw-bold">✓ matches stock_quantity</span>
+  {% else %}<span class="text-muted-2">(stock_quantity {{ med.stock_quantity }} includes opening stock)</span>{% endif %}
+</div>
+
+<div class="row g-4">
+  <div class="col-xl-6">
+    <section class="card-pc h-100">
+      <div class="card-head"><h2 class="me-auto">Purchase History</h2><span class="tbl-chip">purchase_items ⋈ purchases ⋈ suppliers</span></div>
+      <div class="table-responsive">
+        <table class="table table-pc">
+          <thead><tr><th>PO</th><th>Supplier</th><th>Date</th><th class="text-end">Qty</th><th class="text-end">Unit cost</th><th>Status</th></tr></thead>
+          <tbody>
+          {% for p in purchases %}
+            <tr>
+              <td><a class="mono fw-semibold tw-text-xs" href="{{ url_for('purchases.detail', purchase_id=p.purchase_id) }}">{{ p.po_number }}</a></td>
+              <td><a class="cell-title" href="{{ url_for('suppliers.detail', supplier_id=p.supplier_id) }}">{{ p.supplier_name }}</a></td>
+              <td>{{ p.purchase_date | date }}</td>
+              <td class="text-end num">{{ p.quantity }}</td>
+              <td class="text-end num">{{ p.unit_price | money }}</td>
+              <td><span class="pill {{ 'pill-success' if p.status == 'Received' else 'pill-warning' }}">{{ p.status }}</span></td>
+            </tr>
+          {% else %}<tr><td colspan="6">{{ empty('No purchases yet.') }}</td></tr>{% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+  <div class="col-xl-6">
+    <section class="card-pc h-100">
+      <div class="card-head"><h2 class="me-auto">Sales History</h2><span class="tbl-chip">sale_items ⋈ sales ⟕ customers</span></div>
+      <div class="table-responsive">
+        <table class="table table-pc">
+          <thead><tr><th>Invoice</th><th>Customer</th><th>Date</th><th class="text-end">Qty</th><th class="text-end">Line total</th></tr></thead>
+          <tbody>
+          {% for s in sales %}
+            <tr>
+              <td><a class="mono fw-semibold tw-text-xs" href="{{ url_for('sales.invoice', sale_id=s.sale_id) }}">{{ s.invoice_no }}</a></td>
+              <td>{% if s.customer_id %}<a class="cell-title" href="{{ url_for('customers.detail', customer_id=s.customer_id) }}">{{ s.customer_name }}</a>{% else %}<span class="text-muted-2">Walk-in</span>{% endif %}</td>
+              <td>{{ s.sale_date | date }}</td>
+              <td class="text-end num">{{ s.quantity }}</td>
+              <td class="text-end num">{{ (s.quantity * s.unit_price) | money }}</td>
+            </tr>
+          {% else %}<tr><td colspan="5">{{ empty('Not sold yet.') }}</td></tr>{% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% from "_macros.html" import crumbs %}
+{% block title %}Invoice {{ sale.invoice_no }}{% endblock %}
+{% block content %}
+<div class="no-print">{{ crumbs([('Sales History', url_for('sales.index')), (sale.invoice_no, none)]) }}</div>
+<div class="invoice">
+  <div class="d-flex flex-wrap gap-2 justify-content-end mb-3 no-print">
+    <button class="btn btn-brand" type="button" data-print><i class="bi bi-printer me-2"></i>Print Invoice</button>
+    <a class="btn btn-soft" href="{{ url_for('sales.pos') }}"><i class="bi bi-cart-plus me-2"></i>New Sale</a>
+    <a class="btn btn-soft" href="{{ url_for('sales.index') }}"><i class="bi bi-clock-history me-2"></i>Sales History</a>
+  </div>
+
+  <div class="card-pc card-body-pc p-4 p-md-5">
+    <div class="invoice-head mb-4">
+      <div>
+        <div class="brand p-0 mb-2"><span class="brand-logo"><i class="bi bi-plus-lg"></i></span><span class="brand-name">{{ pharmacy_name }}</span></div>
+        <div class="text-muted-2 tw-text-[13px]">Retail Pharmacy · Register #01 Main Counter</div>
+      </div>
+      <div class="text-md-end">
+        <div class="form-label caps mb-0">Tax Invoice</div>
+        <div class="tw-text-2xl fw-800 mono">{{ sale.invoice_no }}</div>
+        <div class="text-muted-2">{{ sale.sale_date | datetime }}</div>
+        <span class="pill pill-success mt-1">Paid · {{ sale.payment_method }}</span>
+      </div>
+    </div>
+
+    <div class="row g-4 mb-4">
+      <div class="col-sm-6">
+        <div class="form-label caps">Billed to</div>
+        {% if sale.customer_id %}
+          <a class="fw-bold d-block text-body" href="{{ url_for('customers.detail', customer_id=sale.customer_id) }}">{{ sale.customer_name }}</a>
+          <div class="tw-text-[13px] text-muted-2">{{ sale.customer_id | code('customer') }} · {{ sale.phone }}<br>{{ sale.address or '' }} {{ sale.city or '' }}</div>
+          {% if sale.allergies %}<div class="tw-text-[12px] text-danger fw-semibold mt-1"><i class="bi bi-exclamation-triangle"></i> Allergy: {{ sale.allergies }}</div>{% endif %}
+        {% else %}
+          <div class="fw-bold">Walk-in customer</div>
+        {% endif %}
+      </div>
+      <div class="col-sm-6 text-sm-end">
+        {% if sale.prescription_ref %}<div class="form-label caps">Prescription</div><div class="mono">{{ sale.prescription_ref }}</div>{% endif %}
+      </div>
+    </div>
+
+    <div class="table-responsive">
+      <table class="table table-pc">
+        <thead><tr><th>#</th><th>Medicine</th><th>Batch / Exp</th><th class="text-end">Qty</th><th class="text-end">Unit Price</th><th class="text-end">Amount</th></tr></thead>
+        <tbody>
+        {% for i in items %}
+          <tr>
+            <td class="text-muted-2">{{ loop.index }}</td>
+            <td><span class="cell-title">{{ i.medicine_name }}</span><div class="cell-sub">{{ i.generic_name or '' }}{{ ' · ' ~ i.dosage_form if i.dosage_form }}</div></td>
+            <td class="mono tw-text-xs">{{ i.batch_no or '—' }}<div class="cell-sub">{{ i.expiry_date | date('%m/%Y') }}</div></td>
+            <td class="text-end num">{{ i.quantity }}</td>
+            <td class="text-end num">{{ i.unit_price | money }}</td>
+            <td class="text-end num fw-semibold">{{ i.line_total | money }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="row justify-content-end mt-3">
+      <div class="col-sm-7 col-lg-5">
+        <div class="d-flex justify-content-between py-1"><span>Subtotal ({{ items | sum(attribute='quantity') }} units)</span><span class="num">{{ sale.subtotal | money }}</span></div>
+        {% if sale.discount_amount %}<div class="d-flex justify-content-between py-1 tw-text-brand-700"><span>Discount</span><span class="num">-{{ sale.discount_amount | money }}</span></div>{% endif %}
+        <div class="d-flex justify-content-between py-1"><span>Tax / VAT</span><span class="num">{{ sale.tax_amount | money }}</span></div>
+        <div class="d-flex justify-content-between border-top mt-2 pt-2 align-items-center"><b>Grand Total</b><span class="grand-total tw-text-3xl">{{ sale.total_amount | money }}</span></div>
+        <div class="d-flex justify-content-between py-1 tw-text-[13px] text-muted-2"><span>Amount paid ({{ sale.payment_method }})</span><span class="num">{{ sale.amount_paid | money }}</span></div>
+        <div class="d-flex justify-content-between py-1 tw-text-[13px] text-muted-2"><span>Change returned</span><span class="num">{{ (sale.amount_paid - sale.total_amount) | money }}</span></div>
+      </div>
+    </div>
+    <div class="text-center text-muted-2 tw-text-xs mt-5">Thank you for choosing {{ pharmacy_name }}. Medicines once sold are returnable only with this invoice within 7 days, unopened.</div>
+  </div>
+</div>
+{% endblock %}

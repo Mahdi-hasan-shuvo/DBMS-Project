@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% from "_macros.html" import empty %}
+{% block title %}Search{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1 class="page-title">Search results</h1>
+    <p class="page-sub">{% if q %}{{ total }} result{{ '' if total == 1 else 's' }} for “<b>{{ q }}</b>” across medicines, customers, suppliers and invoices.{% else %}Type a search term.{% endif %}</p>
+  </div>
+</div>
+<form class="card-pc card-body-pc mb-4" method="get">
+  <div class="input-icon"><i class="bi bi-search"></i><input class="form-control form-control-lg tw-text-base" name="q" value="{{ q }}" placeholder="Search medicines, generics, SKU, customers, suppliers, invoice numbers…" autofocus aria-label="Search"></div>
+</form>
+
+{% if q and not total %}<div class="card-pc">{{ empty('Nothing matched your search.', 'bi-search') }}</div>{% endif %}
+
+<div class="row g-4">
+  {% if results.medicines %}
+  <div class="col-xl-6"><section class="card-pc">
+    <div class="card-head"><h2><i class="bi bi-capsule tw-text-brand-700 me-1"></i>Medicines ({{ results.medicines | length }})</h2></div>
+    <div class="table-responsive"><table class="table table-pc"><tbody>
+      {% for m in results.medicines %}
+        <tr><td><a class="cell-title" href="{{ url_for('medicines.detail', medicine_id=m.medicine_id) }}">{{ m.medicine_name }}</a><div class="cell-sub">{{ m.generic_name or '' }} · {{ m.category_name }}</div></td>
+          <td class="mono tw-text-xs">{{ m.sku or '' }}</td><td class="text-end num">{{ m.stock_quantity }} in stock</td><td class="text-end num fw-semibold">{{ m.price | money }}</td></tr>
+      {% endfor %}
+    </tbody></table></div>
+  </section></div>
+  {% endif %}
+  {% if results.customers %}
+  <div class="col-xl-6"><section class="card-pc">
+    <div class="card-head"><h2><i class="bi bi-people tw-text-brand-700 me-1"></i>Customers ({{ results.customers | length }})</h2></div>
+    <div class="table-responsive"><table class="table table-pc"><tbody>
+      {% for c in results.customers %}
+        <tr><td><a class="cell-title" href="{{ url_for('customers.detail', customer_id=c.customer_id) }}">{{ c.customer_name }}</a><div class="cell-sub">{{ c.email or '' }}</div></td><td>{{ c.phone }}</td><td>{{ c.city or '' }}</td></tr>
+      {% endfor %}
+    </tbody></table></div>
+  </section></div>
+  {% endif %}
+  {% if results.suppliers %}
+  <div class="col-xl-6"><section class="card-pc">
+    <div class="card-head"><h2><i class="bi bi-truck tw-text-brand-700 me-1"></i>Suppliers ({{ results.suppliers | length }})</h2></div>
+    <div class="table-responsive"><table class="table table-pc"><tbody>
+      {% for s in results.suppliers %}
+        <tr><td><a class="cell-title" href="{{ url_for('suppliers.detail', supplier_id=s.supplier_id) }}">{{ s.supplier_name }}</a><div class="cell-sub">{{ s.contact_person or '' }}</div></td><td>{{ s.phone }}</td><td>{{ s.city or '' }}</td></tr>
+      {% endfor %}
+    </tbody></table></div>
+  </section></div>
+  {% endif %}
+  {% if results.sales %}
+  <div class="col-xl-6"><section class="card-pc">
+    <div class="card-head"><h2><i class="bi bi-receipt tw-text-brand-700 me-1"></i>Invoices ({{ results.sales | length }})</h2></div>
+    <div class="table-responsive"><table class="table table-pc"><tbody>
+      {% for s in results.sales %}
+        <tr><td><a class="mono fw-semibold tw-text-[12.5px]" href="{{ url_for('sales.invoice', sale_id=s.sale_id) }}">{{ s.invoice_no }}</a></td><td>{{ s.customer_name or 'Walk-in' }}</td><td>{{ s.sale_date | date }}</td><td class="text-end num">{{ s.total_amount | money }}</td></tr>
+      {% endfor %}
+    </tbody></table></div>
+  </section></div>
+  {% endif %}
+</div>
+{% endblock %}

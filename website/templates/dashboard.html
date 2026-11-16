@@ -1,0 +1,256 @@
+{% extends "base.html" %}
+{% from "_macros.html" import kcard, empty, payment_pill %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <div class="d-flex align-items-center gap-3 flex-wrap">
+      <h1 class="page-title">Pharmacy Operations Dashboard</h1>
+      <span class="pill pill-mint">Live Mode</span>
+    </div>
+    <p class="page-sub">Real-time database records and clinical inventory overview.</p>
+  </div>
+  <div class="d-flex flex-wrap gap-2">
+    <span class="btn btn-soft pe-none"><i class="bi bi-calendar3 me-2"></i>Today: {{ today.strftime('%b %d, %Y') }}</span>
+    <a class="btn btn-soft" href="{{ url_for('reports.export', tab='sales', preset='today') }}"><i class="bi bi-download me-2"></i>Export Daily Summary</a>
+    <a class="btn btn-brand" href="{{ url_for('dashboard.index') }}"><i class="bi bi-arrow-clockwise me-2"></i>Refresh Data</a>
+  </div>
+</div>
+
+<div class="row g-3 mb-4 row-cols-2 row-cols-md-3 row-cols-xxl-6">
+  <div class="col">
+    {% call kcard("Today's Sales", sales_today.revenue | money, 'bi-cash-coin') %}
+      {% if change is not none %}<span class="{{ 'trend-up' if change >= 0 else 'trend-down' }}"><i class="bi bi-arrow-{{ 'up' if change >= 0 else 'down' }}"></i>{{ '%.1f' | format(change | abs) }}%</span> · {% endif %}{{ sales_today.txns }} txns
+    {% endcall %}
+  </div>
+  <div class="col">{{ kcard('Total Medicines', stats.medicines, 'bi-capsule', 'items', '', stats.categories ~ ' categories · ' ~ (stats.units | num) ~ ' units') }}</div>
+  <div class="col">
+    {% call kcard('Suppliers', stats.active_suppliers, 'bi-truck', 'active') %}
+      <span class="tw-text-brand-700 fw-semibold"><span class="dot me-1"></span>{{ stats.draft_orders }} orders awaiting delivery</span>
+    {% endcall %}
+  </div>
+  <div class="col">
+    {% call kcard('Customers', stats.customers | num, 'bi-people', 'reg.') %}
+      <span class="tw-text-brand-700 fw-semibold"><i class="bi bi-graph-up-arrow me-1"></i>+{{ stats.new_customers }} new this week</span>
+    {% endcall %}
+  </div>
+  <div class="col">
+    {% call kcard('Low Stock Items', stats.low_stock, 'bi-exclamation-triangle', 'medicines', 'warn') %}
+      <a href="{{ url_for('alerts.index', tab='stock') }}" class="tw-text-amber-800 fw-semibold">Critical replenishment →</a>
+    {% endcall %}
+  </div>
+  <div class="col">
+    {% call kcard('Expiring Soon', stats.expiring, 'bi-calendar-x', 'medicines', 'danger') %}
+      <a href="{{ url_for('alerts.index', tab='expiry') }}" class="text-danger fw-semibold"><i class="bi bi-clock me-1"></i>Within 30 days{% if stats.expired %} · {{ stats.expired }} expired{% endif %}</a>
+    {% endcall %}
+  </div>
+</div>
+
+<div class="row g-4">
+  <div class="col-xl-8 d-flex flex-column gap-4">
+    <section class="card-pc">
+      <div class="card-head">
+        <div class="me-auto">
+          <h2>Sales &amp; Revenue Overview</h2>
+          <div class="sub">Last 7 days · prescription (Rx) vs over-the-counter (OTC) revenue</div>
+        </div>
+        <span class="tw-text-xs d-flex gap-3 text-muted-2">
+          <span><span class="d-inline-block rounded-1 me-1" style="width:10px;height:10px;background:#065f46"></span>Rx (Prescription)</span>
+          <span><span class="d-inline-block rounded-1 me-1" style="width:10px;height:10px;background:#5eead4"></span>OTC</span>
+        </span>
+      </div>
+      <div class="card-body-pc">
+        <div class="tw-grid tw-grid-cols-3 tw-gap-4 tw-rounded-xl tw-border tw-border-solid tw-border-slate-200 tw-bg-slate-50 tw-p-4 mb-3">
+          <div><div class="tw-text-xs text-muted-2 fw-semibold">Avg Ticket Size</div><div class="tw-text-xl fw-800">{{ avg_ticket | money }}</div></div>
+          <div><div class="tw-text-xs text-muted-2 fw-semibold">Rx Revenue Share</div><div class="tw-text-xl fw-800 tw-text-teal-600">{{ '%.1f' | format(rx_share) }}%</div></div>
+          <div><div class="tw-text-xs text-muted-2 fw-semibold">7-Day Revenue</div><div class="tw-text-xl fw-800">{{ week_total | money }}</div></div>
+        </div>
+        <div class="chart-box"><canvas id="weekChart" aria-label="Revenue for the last 7 days" role="img"></canvas></div>
+      </div>
+    </section>
+
+    <section class="card-pc">
+      <div class="card-head">
+        <h2 class="me-auto"><i class="bi bi-receipt-cutoff tw-text-brand-700 me-2"></i>Recent In-Store Sales</h2>
+        <a href="{{ url_for('sales.index') }}" class="fw-semibold tw-text-sm">View All Transactions →</a>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-pc">
+          <thead><tr><th>Invoice #</th><th>Customer</th><th class="text-center">Items</th><th class="text-end">Total</th><th>Method</th><th>Type</th><th class="text-end">Action</th></tr></thead>
+          <tbody>
+          {% for s in recent_sales %}
+            <tr>
+              <td><a class="mono fw-semibold tw-text-[12.5px]" href="{{ url_for('sales.invoice', sale_id=s.sale_id) }}">{{ s.invoice_no }}</a><div class="cell-sub">{{ s.sale_date | datetime }}</div></td>
+              <td>
+                {% if s.customer_id %}<a class="cell-title" href="{{ url_for('customers.detail', customer_id=s.customer_id) }}">{{ s.customer_name }}</a>{% else %}<span class="cell-title">Walk-in customer</span>{% endif %}
+                <div class="cell-sub">{{ s.prescription_ref or 'Direct OTC' }}</div>
+              </td>
+              <td class="text-center">{{ s.item_units }}</td>
+              <td class="text-end num fw-semibold">{{ s.total_amount | money }}</td>
+              <td>{{ payment_pill(s.payment_method) }}</td>
+              <td>{% if s.prescription_ref %}<span class="pill pill-info">Rx</span>{% else %}<span class="pill pill-success">Paid</span>{% endif %}</td>
+              <td class="text-end"><a class="btn-icon" href="{{ url_for('sales.invoice', sale_id=s.sale_id) }}" title="View / print invoice"><i class="bi bi-printer"></i></a></td>
+            </tr>
+          {% else %}
+            <tr><td colspan="7">{{ empty('No sales recorded yet.') }}</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card-pc">
+      <div class="card-head">
+        <h2 class="me-auto"><i class="bi bi-box-seam tw-text-brand-700 me-2"></i>Recent Stock Purchases (PO Log)</h2>
+        <a href="{{ url_for('purchases.index') }}" class="fw-semibold tw-text-sm">All Purchases →</a>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-pc">
+          <thead><tr><th>PO Number</th><th>Supplier</th><th>Order Date</th><th class="text-end">Total Amount</th><th>Status</th></tr></thead>
+          <tbody>
+          {% for p in recent_purchases %}
+            <tr>
+              <td><a class="mono fw-semibold tw-text-[12.5px]" href="{{ url_for('purchases.detail', purchase_id=p.purchase_id) }}">{{ p.po_number }}</a></td>
+              <td class="cell-title">{{ p.supplier_name }}</td>
+              <td>{{ p.purchase_date | date }}</td>
+              <td class="text-end num">{{ p.total_amount | money }}</td>
+              <td>{% if p.status == 'Received' %}<span class="pill pill-success">Received</span>{% else %}<span class="pill pill-warning">Draft</span>{% endif %}</td>
+            </tr>
+          {% else %}
+            <tr><td colspan="5">{{ empty('No purchases recorded yet.') }}</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <div class="col-xl-4 d-flex flex-column gap-4">
+    <section class="card-pc">
+      <div class="card-head">
+        <h2 class="me-auto"><i class="bi bi-lightning-charge tw-text-brand-700 me-1"></i>Quick POS Dispense</h2>
+        <span class="pill pill-mint no-dot mono">LANE 01</span>
+      </div>
+      <form class="card-body-pc" method="post" action="{{ url_for('sales.quick') }}">
+        <div class="mb-3">
+          <label class="form-label" for="q_customer">Customer / patient</label>
+          <select class="form-select" id="q_customer" name="customer_id">
+            <option value="">Walk-in customer</option>
+            {% for c in quick_customers %}<option value="{{ c.customer_id }}">{{ c.customer_name }} ({{ c.customer_id | code('customer') }})</option>{% endfor %}
+          </select>
+        </div>
+        <div class="mb-3">
+          <label class="form-label" for="q_med">Medicine</label>
+          <select class="form-select" id="q_med" name="medicine_id" required>
+            <option value="">Select medicine…</option>
+            {% for m in quick_medicines %}<option value="{{ m.medicine_id }}" data-price="{{ m.price }}">{{ m.medicine_name }} · {{ m.price | money }} · {{ m.stock_quantity }} left</option>{% endfor %}
+          </select>
+        </div>
+        <div class="row g-2 mb-3">
+          <div class="col-5">
+            <label class="form-label" for="q_qty">Quantity</label>
+            <input class="form-control" type="number" min="1" value="1" id="q_qty" name="quantity" required>
+          </div>
+          <div class="col-7">
+            <label class="form-label" for="q_pay">Payment</label>
+            <select class="form-select" id="q_pay" name="payment_method">
+              <option>Cash</option><option>Card</option><option>Mobile Banking</option><option>Insurance</option>
+            </select>
+          </div>
+        </div>
+        <div class="d-flex justify-content-between align-items-center rounded-3 px-3 py-2 mb-3 tw-bg-brand-50">
+          <span class="tw-text-xs fw-semibold text-uppercase tw-text-slate-600">Estimated total (incl. {{ (tax_rate * 100) | round(1) }}% tax)</span>
+          <span class="fw-800 tw-text-brand-700" id="q_total">{{ 0 | money }}</span>
+        </div>
+        <div class="d-flex gap-2">
+          <button class="btn btn-brand flex-grow-1" type="submit"><i class="bi bi-check-circle me-2"></i>Process Payment</button>
+          <a class="btn btn-soft" href="{{ url_for('sales.pos') }}" title="Open full POS terminal"><i class="bi bi-arrows-fullscreen"></i></a>
+        </div>
+      </form>
+    </section>
+
+    <section class="card-pc card-accent-amber">
+      <div class="card-head">
+        <h2 class="me-auto"><i class="bi bi-clipboard2-pulse tw-text-amber-700 me-2"></i>Low Stock Alert List</h2>
+        <span class="pill pill-warning no-dot">{{ stats.low_stock }} At Risk</span>
+      </div>
+      <div class="card-body-pc">
+        {% for m in low_stock %}
+          <div class="alert-item">
+            <div class="min-w-0">
+              <a class="title d-block text-body" href="{{ url_for('medicines.detail', medicine_id=m.medicine_id) }}">{{ m.medicine_name }}</a>
+              <div class="meta">{{ m.generic_name or '—' }} · SKU: {{ m.sku or '—' }}</div>
+              <div class="crit">Current: {{ m.stock_quantity }} units <span class="text-muted-2 fw-normal">(Min threshold: {{ m.reorder_level }})</span></div>
+            </div>
+            <a href="{{ url_for('purchases.new', medicine_id=m.medicine_id) }}" class="btn btn-sm btn-amber">Reorder</a>
+          </div>
+        {% else %}
+          {{ empty('All medicines are above their reorder level.', 'bi-check2-circle') }}
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="card-pc card-accent-red">
+      <div class="card-head">
+        <h2 class="me-auto"><i class="bi bi-calendar-x text-danger me-2"></i>Expiring-Soon Medicines</h2>
+        <span class="pill pill-danger no-dot">Action Required</span>
+      </div>
+      <div class="card-body-pc">
+        {% for m in expiring %}
+          {% set d = days_until(m.expiry_date) %}
+          <div class="alert-item">
+            <div class="min-w-0">
+              <div class="d-flex align-items-center gap-2 flex-wrap">
+                <a class="title text-body" href="{{ url_for('medicines.detail', medicine_id=m.medicine_id) }}">{{ m.medicine_name }}</a>
+                <span class="id-chip red">{{ m.batch_no or 'No lot' }}</span>
+              </div>
+              <div class="meta">Exp date: {{ m.expiry_date | date }} · {{ m.stock_quantity }} in stock</div>
+              <div class="crit">{% if d < 0 %}Expired {{ -d }} days ago{% else %}{{ d }} days remaining{% endif %}</div>
+            </div>
+            {% if d < 0 %}<span class="pill pill-danger no-dot">Quarantine</span>{% else %}<span class="pill pill-warning no-dot">Discount</span>{% endif %}
+          </div>
+        {% else %}
+          {{ empty('No medicines expire in the next 30 days.', 'bi-check2-circle') }}
+        {% endfor %}
+      </div>
+    </section>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='vendor/chartjs/chart.umd.min.js') }}"></script>
+<script>
+  (function () {
+    var data = {{ chart | tojson }};
+    var currency = {{ currency | tojson }};
+    var ctx = document.getElementById('weekChart');
+    if (ctx && window.Chart) {
+      new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: data.map(function (d) { return d.label; }),
+          datasets: [
+            { label: 'Rx (Prescription)', data: data.map(function (d) { return d.rx; }), backgroundColor: '#065f46', borderRadius: 6, stack: 's' },
+            { label: 'OTC', data: data.map(function (d) { return d.otc; }), backgroundColor: '#5eead4', borderRadius: 6, stack: 's' }
+          ]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { display: false }, tooltip: { callbacks: { label: function (c) { return c.dataset.label + ': ' + currency + c.parsed.y.toFixed(2); } } } },
+          scales: { x: { stacked: true, grid: { display: false } }, y: { stacked: true, ticks: { callback: function (v) { return currency + v; } }, grid: { color: '#eef2f0' } } }
+        }
+      });
+    }
+    // Quick dispense estimated total
+    var med = document.getElementById('q_med'), qty = document.getElementById('q_qty'), out = document.getElementById('q_total');
+    var tax = {{ tax_rate | tojson }};
+    function update() {
+      var opt = med.options[med.selectedIndex];
+      var price = parseFloat(opt && opt.dataset.price || 0), q = parseInt(qty.value || 0, 10) || 0;
+      out.textContent = currency + (price * q * (1 + tax)).toFixed(2);
+    }
+    med.addEventListener('change', update); qty.addEventListener('input', update);
+  })();
+</script>
+{% endblock %}

@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% from "_macros.html" import kcard, crumbs, empty, delete_form %}
+{% block title %}Categories{% endblock %}
+{% block content %}
+{{ crumbs([('Inventory', none), ('Categories', none)]) }}
+<div class="page-head">
+  <div>
+    <h1 class="page-title">Medicine Categories</h1>
+    <p class="page-sub">Therapeutic groups used to organize the formulary (<span class="tbl-chip">categories</span> 1 : N
+      <span class="tbl-chip">medicines</span>).</p>
+  </div>
+  <button class="btn btn-brand" type="button" data-bs-toggle="modal" data-bs-target="#categoryModal"
+          data-action="{{ url_for('categories.create') }}" data-title="Add Category"><i class="bi bi-plus-circle me-2"></i>Add Category</button>
+</div>
+
+{% set total_skus = rows | sum(attribute='medicines') %}
+{% set total_value = rows | sum(attribute='stock_value') %}
+<div class="row g-3 mb-4 row-cols-1 row-cols-sm-3">
+  <div class="col">{{ kcard('Categories', rows | length, 'bi-tags') }}</div>
+  <div class="col">{{ kcard('Medicines classified', total_skus, 'bi-capsule', 'SKUs') }}</div>
+  <div class="col">{{ kcard('Stock value at cost', total_value | money, 'bi-cash-stack') }}</div>
+</div>
+
+<section class="card-pc">
+  <div class="card-head">
+    <h2 class="me-auto">Category Records</h2>
+    <span class="tbl-chip">categories ⟕ medicines GROUP BY category_id</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-pc">
+      <thead><tr><th>ID</th><th>Category</th><th>Description</th><th class="text-end">Medicines</th><th class="text-end">Units in stock</th><th class="text-end">Stock value</th><th style="width:160px">Share</th><th class="text-end">Actions</th></tr></thead>
+      <tbody>
+      {% for c in rows %}
+        <tr>
+          <td><span class="id-chip">{{ c.category_id | code('category') }}</span></td>
+          <td><a class="cell-title" href="{{ url_for('medicines.index', category=c.category_id) }}">{{ c.category_name }}</a></td>
+          <td class="text-muted-2">{{ c.description or '—' }}</td>
+          <td class="text-end num">{{ c.medicines }}</td>
+          <td class="text-end num">{{ c.units | num }}</td>
+          <td class="text-end num">{{ c.stock_value | money }}</td>
+          <td>
+            {% set pct = (c.stock_value / total_value * 100) if total_value else 0 %}
+            <div class="meter"><span style="width: {{ pct | round(1) }}%"></span></div>
+            <div class="tw-text-[11px] text-muted-2 mt-1">{{ '%.1f' | format(pct) }}% of value</div>
+          </td>
+          <td class="text-end text-nowrap">
+            <button type="button" class="btn-icon" title="Edit" aria-label="Edit" data-bs-toggle="modal" data-bs-target="#categoryModal"
+                    data-action="{{ url_for('categories.update', category_id=c.category_id) }}" data-title="Edit {{ c.category_name }}"
+                    data-record='{{ c | tojson }}'><i class="bi bi-pencil-square"></i></button>
+            {{ delete_form(url_for('categories.delete', category_id=c.category_id), 'Delete category ' ~ c.category_name ~ '?') }}
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="8">{{ empty('No categories yet. Add the first one.') }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<div class="modal fade" id="categoryModal" tabindex="-1" aria-labelledby="categoryModalTitle" aria-hidden="true" data-record-modal>
+  <div class="modal-dialog">
+    <form class="modal-content" method="post" action="{{ url_for('categories.create') }}">
+      <div class="modal-header">
+        <h5 class="modal-title" id="categoryModalTitle" data-modal-title>Add Category</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label" for="c_name">Category name *</label>
+          <input class="form-control" id="c_name" name="category_name" required maxlength="100" placeholder="e.g. Antibiotic">
+        </div>
+        <div>
+          <label class="form-label" for="c_desc">Description</label>
+          <input class="form-control" id="c_desc" name="description" maxlength="255">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-soft" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-brand">Save Category</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

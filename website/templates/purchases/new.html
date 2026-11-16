@@ -1,0 +1,176 @@
+{% extends "base.html" %}
+{% from "_macros.html" import crumbs, sql_panel %}
+{% block title %}New Purchase Order{% endblock %}
+{% block content %}
+{{ crumbs([('Purchases', url_for('purchases.index')), ('New Purchase Order', none)]) }}
+<form method="post" action="{{ url_for('purchases.new') }}" id="purchaseForm" class="card-pc" novalidate>
+  <div class="card-head">
+    <span class="kpi-icon position-static"><i class="bi bi-file-earmark-plus"></i></span>
+    <div class="me-auto">
+      <h2>New Purchase Order Entry</h2>
+      <div class="sub">Multi-item receipt mapped to <code>purchases</code> (header) + <code>purchase_items</code> (line items)</div>
+    </div>
+    <span class="tbl-chip">Transaction: atomic commit / rollback</span>
+  </div>
+  <div class="card-body-pc">
+    <div class="row g-3 mb-4">
+      <div class="col-md-6 col-xl-3">
+        <label class="form-label" for="p_supplier">Supplier * <span class="mono text-muted-2 fw-normal">(suppliers.supplier_id)</span></label>
+        <select class="form-select" id="p_supplier" name="supplier_id" required>
+          <option value="">Select supplier…</option>
+          {% for s in suppliers %}
+            <option value="{{ s.supplier_id }}" {{ 'selected' if values.supplier_id | string == s.supplier_id | string }}>{{ s.supplier_name }}{{ ' (On Hold)' if s.status != 'Active' }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-6 col-xl-3">
+        <label class="form-label" for="p_invoice">Supplier invoice ref #</label>
+        <input class="form-control mono" id="p_invoice" name="invoice_no" maxlength="50" value="{{ values.invoice_no or '' }}" placeholder="INV-SUP-2026-0001">
+      </div>
+      <div class="col-md-6 col-xl-3">
+        <label class="form-label" for="p_date">Purchase date *</label>
+        <input class="form-control" type="date" id="p_date" name="purchase_date" required value="{{ values.purchase_date or today.isoformat() }}">
+      </div>
+      <div class="col-md-6 col-xl-3">
+        <label class="form-label" for="p_ship">Shipping / logistics ({{ currency }})</label>
+        <input class="form-control" type="number" step="0.01" min="0" id="p_ship" name="shipping_cost" value="{{ values.shipping_cost or '0' }}">
+      </div>
+      <div class="col-12">
+        <label class="form-label" for="p_notes">Receiving notes</label>
+        <input class="form-control" id="p_notes" name="notes" maxlength="255" value="{{ values.notes or '' }}" placeholder="e.g. Maintain 2°C – 8°C for insulin batch. CoA verified on arrival.">
+      </div>
+    </div>
+
+    <div class="d-flex align-items-center justify-content-between mb-2">
+      <div class="fw-bold">Itemized Inbound Manifest <span class="mono text-muted-2 tw-text-xs fw-normal">(purchase_items)</span></div>
+      <button type="button" class="btn btn-soft btn-sm" id="addRow"><i class="bi bi-plus-lg me-1"></i>Add Medicine Row</button>
+    </div>
+    <div class="table-responsive border rounded-3">
+      <table class="table table-pc" id="itemsTable">
+        <thead><tr><th style="min-width:260px">Medicine</th><th>Current Stock</th><th style="width:130px">Order Qty</th><th style="width:150px">Unit Buy Price</th><th class="text-end">Line Total</th><th class="text-end">Action</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="tw-text-xs text-muted-2 mt-2">Duplicate medicines are merged into one line. Received quantities also update each medicine's cost price.</div>
+
+    <div class="row g-4 mt-1">
+      <div class="col-lg-7">
+        <div class="note-box h-100">
+          <div class="fw-bold mb-2 tw-text-brand-700"><i class="bi bi-shield-check me-1"></i>Relational DBMS ACID transaction guarantee</div>
+          <div class="mb-2">Confirming this purchase executes one atomic transaction across the schema:</div>
+          <pre class="sql-panel tw-text-[11.5px]" data-highlight>START TRANSACTION;
+INSERT INTO purchases (supplier_id, invoice_no, purchase_date, status, total_amount) VALUES (?, ?, ?, 'Received', ?);
+INSERT INTO purchase_items (purchase_id, medicine_id, quantity, unit_price) VALUES (?, ?, ?, ?);  -- per line
+UPDATE medicines SET stock_quantity = stock_quantity + ?, cost_price = ? WHERE medicine_id = ?;
+COMMIT;  -- any failure rolls back everything: zero stock discrepancy</pre>
+        </div>
+      </div>
+      <div class="col-lg-5">
+        <div class="card-pc card-body-pc">
+          <div class="d-flex justify-content-between mb-2"><span>Subtotal (<span id="unitCount">0</span> units)</span><span class="num" id="subtotal">{{ 0 | money }}</span></div>
+          <div class="d-flex justify-content-between mb-2"><span>Tax / GST ({{ (tax_rate * 100) | round(1) }}%)</span><span class="num" id="tax">{{ 0 | money }}</span></div>
+          <div class="d-flex justify-content-between mb-3"><span>Shipping</span><span class="num" id="shipping">{{ 0 | money }}</span></div>
+          <div class="d-flex justify-content-between align-items-center border-top pt-3">
+            <span class="fw-bold">Grand Total Payable</span><span class="grand-total tw-text-2xl" id="grand">{{ 0 | money }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between border-top px-4 py-3">
+    <span class="tw-text-xs text-muted-2"><i class="bi bi-person-check me-1"></i>Verified by: Pharmacist Admin</span>
+    <div class="d-flex gap-2 flex-wrap">
+      <a class="btn btn-soft" href="{{ url_for('purchases.index') }}">Cancel</a>
+      <button class="btn btn-soft" type="submit" name="action" value="draft"><i class="bi bi-floppy me-1"></i>Save as Draft (No Stock Change)</button>
+      <button class="btn btn-brand" type="submit" name="action" value="receive"><i class="bi bi-check-circle me-1"></i>Confirm &amp; Update Stock (Commit)</button>
+    </div>
+  </div>
+</form>
+
+<template id="rowTemplate">
+  <tr>
+    <td>
+      <select class="form-select form-select-sm" name="medicine_id" aria-label="Medicine">
+        <option value="">Select medicine…</option>
+        {% for m in medicines %}
+          <option value="{{ m.medicine_id }}" data-stock="{{ m.stock_quantity }}" data-reorder="{{ m.reorder_level }}" data-cost="{{ m.cost_price }}">{{ m.medicine_name }}{{ ' · ' ~ m.sku if m.sku }}</option>
+        {% endfor %}
+      </select>
+    </td>
+    <td><span class="pill pill-muted no-dot" data-stock-badge>—</span></td>
+    <td><input class="form-control form-control-sm" type="number" min="1" step="1" name="quantity" value="1" aria-label="Quantity"></td>
+    <td><div class="input-group input-group-sm"><span class="input-group-text">{{ currency }}</span><input class="form-control" type="number" min="0" step="0.01" name="unit_price" value="0.00" aria-label="Unit price"></div></td>
+    <td class="text-end num fw-semibold" data-line>{{ 0 | money }}</td>
+    <td class="text-end"><button type="button" class="btn-icon danger" data-remove title="Remove row" aria-label="Remove row"><i class="bi bi-trash3"></i></button></td>
+  </tr>
+</template>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  var currency = {{ currency | tojson }}, taxRate = {{ tax_rate | tojson }};
+  var initial = {{ items | tojson }};
+  var body = document.querySelector('#itemsTable tbody');
+  var tpl = document.getElementById('rowTemplate');
+  var money = function (v) { return currency + v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
+
+  function refreshRow(tr, setCost) {
+    var sel = tr.querySelector('select'), opt = sel.options[sel.selectedIndex];
+    var badge = tr.querySelector("[data-stock-badge]");
+    if (opt && opt.value) {
+      var stock = +opt.dataset.stock, reorder = +opt.dataset.reorder;
+      badge.textContent = stock + ' units';
+      badge.className = 'pill no-dot ' + (stock === 0 ? 'pill-danger' : stock <= reorder ? 'pill-warning' : 'pill-success');
+      if (setCost) tr.querySelector('[name=unit_price]').value = (+opt.dataset.cost).toFixed(2);
+    } else { badge.textContent = '—'; badge.className = 'pill pill-muted no-dot'; }
+    recalc();
+  }
+  function addRow(item) {
+    var tr = tpl.content.firstElementChild.cloneNode(true);
+    body.appendChild(tr);
+    if (item) {
+      tr.querySelector('select').value = item.medicine_id;
+      tr.querySelector('[name=quantity]').value = item.quantity;
+      tr.querySelector('[name=unit_price]').value = (+item.unit_price || 0).toFixed(2);
+    }
+    tr.querySelector('select').addEventListener('change', function () { refreshRow(tr, true); });
+    tr.querySelectorAll('input').forEach(function (i) { i.addEventListener('input', recalc); });
+    tr.querySelector('[data-remove]').addEventListener('click', function () {
+      tr.remove(); if (!body.children.length) addRow(); recalc();
+    });
+    refreshRow(tr, !item);
+  }
+  function recalc() {
+    var sub = 0, units = 0;
+    body.querySelectorAll('tr').forEach(function (tr) {
+      var q = parseInt(tr.querySelector('[name=quantity]').value, 10) || 0;
+      var p = parseFloat(tr.querySelector('[name=unit_price]').value) || 0;
+      var has = tr.querySelector('select').value;
+      var line = has ? q * p : 0;
+      tr.querySelector('[data-line]').textContent = money(line);
+      if (has) { sub += line; units += q; }
+    });
+    var ship = parseFloat(document.getElementById('p_ship').value) || 0;
+    var tax = Math.round(sub * taxRate * 100) / 100;
+    document.getElementById('unitCount').textContent = units;
+    document.getElementById('subtotal').textContent = money(sub);
+    document.getElementById('tax').textContent = money(tax);
+    document.getElementById('shipping').textContent = money(ship);
+    document.getElementById('grand').textContent = money(sub + tax + ship);
+  }
+  document.getElementById('addRow').addEventListener('click', function () { addRow(); });
+  document.getElementById('p_ship').addEventListener('input', recalc);
+  if (initial.length) initial.forEach(addRow); else { addRow(); }
+
+  document.getElementById('purchaseForm').addEventListener('submit', function (e) {
+    var supplier = document.getElementById('p_supplier');
+    var hasItem = Array.prototype.some.call(body.querySelectorAll('select'), function (s) { return s.value; });
+    if (!supplier.value || !hasItem) {
+      e.preventDefault();
+      alert(!supplier.value ? 'Please select a supplier.' : 'Add at least one medicine.');
+    }
+  });
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+{% from "_macros.html" import kcard, pager, crumbs, empty, sql_panel %}
+{% block title %}Inventory Alerts{% endblock %}
+{% block content %}
+{{ crumbs([('Dashboard', url_for('dashboard.index')), ('Inventory Management', none), ('Stock & expiry alerts', none)]) }}
+<div class="page-head">
+  <div>
+    <h1 class="page-title">Inventory Alerts &amp; Stock Health Center</h1>
+    <p class="page-sub">Real-time formulary surveillance: reorder threshold monitoring, expiry quarantines and supplier replenishment triggers.</p>
+  </div>
+  <div class="d-flex flex-wrap gap-2">
+    <a class="btn btn-soft" href="{{ url_for('alerts.export', **request.args) }}"><i class="bi bi-download me-2"></i>Export Alert Manifest (CSV)</a>
+    <a class="btn btn-brand" href="{{ url_for('alerts.index') }}"><i class="bi bi-arrow-repeat me-2"></i>Run Stock Audit</a>
+  </div>
+</div>
+
+<div class="row g-3 mb-4 row-cols-1 row-cols-sm-2 row-cols-xl-4">
+  <div class="col">
+    {% call kcard('Low Stock Deficit', kpi.low or 0, 'bi-exclamation-triangle', 'medicines below min', 'warn') %}
+      Total deficit: <b>{{ kpi.low_deficit or 0 }} units</b> · reorder priority
+    {% endcall %}
+  </div>
+  <div class="col">
+    {% call kcard('Stockout Depleted', kpi.out_of_stock or 0, 'bi-cart-x', 'SKUs at 0 units', 'danger') %}
+      <span class="text-danger fw-semibold">Stockout risk high</span> · immediate PO required
+    {% endcall %}
+  </div>
+  <div class="col">
+    {% call kcard('Expiring (next ' ~ watch_days ~ ' days)', kpi.expiring or 0, 'bi-clock-history', 'batches monitored', 'warn') %}
+      Inventory value at risk: <b class="mono">{{ (kpi.expiring_value or 0) | money }}</b>
+    {% endcall %}
+  </div>
+  <div class="col">
+    {% call kcard('Expired / Quarantined', kpi.expired or 0, 'bi-slash-circle', 'locked lots', 'danger') %}
+      POS sale blocked · write-off value <b class="mono">{{ (kpi.expired_value or 0) | money }}</b>
+    {% endcall %}
+  </div>
+</div>
+
+<div class="card-pc mb-4">
+  <div class="card-body-pc">
+    <div class="d-flex flex-wrap gap-3 align-items-center justify-content-between mb-3">
+      <div class="seg">
+        <a href="{{ url_with(tab=None, page=None) }}" class="{{ 'active' if f.tab == 'all' }}">All Active Alerts <span class="count">{{ tab_counts.all_count or 0 }}</span></a>
+        <a href="{{ url_with(tab='stock', page=None) }}" class="{{ 'active' if f.tab == 'stock' }}">Stock Level Deficits <span class="count">{{ tab_counts.stock_count or 0 }}</span></a>
+        <a href="{{ url_with(tab='expiry', page=None) }}" class="{{ 'active' if f.tab == 'expiry' }}">Expiry Surveillance &amp; Quarantine <span class="count">{{ tab_counts.expiry_count or 0 }}</span></a>
+      </div>
+      <span class="tw-text-xs text-muted-2">Thresholds: expiring ≤ 30 days · watch ≤ {{ watch_days }} days · low ≤ reorder level</span>
+    </div>
+    <form class="row g-2" method="get" data-autosubmit>
+      {% if f.tab != 'all' %}<input type="hidden" name="tab" value="{{ f.tab }}">{% endif %}
+      <div class="col-lg-5">
+        <div class="input-icon"><i class="bi bi-search"></i>
+          <input class="form-control" name="q" value="{{ f.q }}" placeholder="Search alert by medicine name, SKU or batch" aria-label="Search alerts">
+        </div>
+      </div>
+      <div class="col-sm-6 col-lg-3">
+        <select class="form-select" name="severity" aria-label="Severity">
+          <option value="">Severity: all alerts</option>
+          {% for k, v in severities.items() %}<option value="{{ k }}" {{ 'selected' if f.severity == k }}>{{ v }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-sm-6 col-lg-3">
+        <select class="form-select" name="category" aria-label="Category">
+          <option value="">Category: all categories</option>
+          {% for c in categories %}<option value="{{ c.category_id }}" {{ 'selected' if f.category == c.category_id }}>{{ c.category_name }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-lg-1"><a class="btn btn-soft w-100" href="{{ url_for('alerts.index') }}" title="Reset filters" aria-label="Reset filters"><i class="bi bi-arrow-counterclockwise"></i></a></div>
+    </form>
+  </div>
+</div>
+
+<section class="card-pc">
+  <div class="card-head">
+    <h2 class="me-auto">Active Alert Formulary Manifest</h2>
+    <span class="pill pill-mint no-dot">Showing {{ rows | length }} of {{ page.total }} alert rows</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-pc">
+      <thead><tr><th>Alert Severity</th><th>Medicine, Formulation &amp; Batch</th><th style="min-width:190px">Stock vs Reorder Min</th><th>Expiry Date &amp; Countdown</th><th>Last Supplier</th><th class="text-end">Restock Cost</th><th class="text-end">Action</th></tr></thead>
+      <tbody>
+      {% for r in rows %}
+        {% set d = days_until(r.expiry_date) %}
+        {% set deficit = r.reorder_level - r.stock_quantity %}
+        {% set suggest = [r.reorder_level * 3 - r.stock_quantity, 0] | max %}
+        <tr class="{{ 'row-danger' if r.alert_status in ('EXPIRED', 'OUT_OF_STOCK') }}">
+          <td>
+            {% if r.alert_status == 'EXPIRED' %}<span class="pill pill-danger">Expired · quarantined</span>
+            {% elif r.alert_status == 'OUT_OF_STOCK' %}<span class="pill pill-danger">Out of stock</span>
+            {% elif r.alert_status == 'LOW_STOCK' %}<span class="pill pill-warning">Low stock ({{ (r.stock_quantity / r.reorder_level * 100) | round | int if r.reorder_level else 0 }}%)</span>
+            {% elif r.alert_status == 'EXPIRING_SOON' %}<span class="pill pill-warning">Expires in {{ d }} days</span>
+            {% else %}<span class="pill pill-info">Expiry watch · {{ d }} days</span>{% endif %}
+          </td>
+          <td>
+            <a class="cell-title" href="{{ url_for('medicines.detail', medicine_id=r.medicine_id) }}">{{ r.medicine_name }}</a>
+            <div class="cell-sub fst-italic">{{ r.generic_name or '' }}{{ ' · ' ~ r.dosage_form if r.dosage_form }}</div>
+            <div class="cell-sub mono">{{ r.medicine_id | code('medicine') }} · {{ r.category_name }}</div>
+            <div class="cell-sub mono {{ 'text-danger text-decoration-line-through' if r.alert_status == 'EXPIRED' }}">Lot {{ r.batch_no or '—' }}</div>
+          </td>
+          <td>
+            <div class="d-flex justify-content-between tw-text-[12.5px] mono">
+              <b class="{{ 'text-danger' if r.stock_quantity == 0 or r.alert_status == 'EXPIRED' else ('tw-text-amber-700' if deficit >= 0) }}">{{ r.stock_quantity }} units{{ ' (locked)' if r.alert_status == 'EXPIRED' }}</b>
+              <span class="text-muted-2">Min: {{ r.reorder_level }}</span>
+            </div>
+            {% set cap = [r.reorder_level * 3, 1] | max %}
+            <div class="meter {{ 'out' if r.stock_quantity == 0 or r.alert_status == 'EXPIRED' else ('low' if deficit >= 0) }}"><span style="width: {{ [(r.stock_quantity / cap * 100) | round | int, 100] | min }}%"></span></div>
+            <div class="tw-text-[11.5px] mt-1 {{ 'text-danger' if deficit >= 0 else 'tw-text-brand-700' }}">
+              {% if r.alert_status == 'EXPIRED' %}POS dispensing blocked{% elif deficit >= 0 %}Deficit: −{{ deficit }} units{% else %}Stock sufficient{% endif %}
+            </div>
+          </td>
+          <td class="tw-text-[13px]">
+            <div class="{{ 'text-danger fw-bold' if d <= 30 }}">{{ r.expiry_date | date }}</div>
+            <div class="cell-sub {{ 'text-danger' if d < 0 else ('tw-text-amber-700' if d <= 30) }}">
+              {% if d < 0 %}<i class="bi bi-alarm"></i> {{ -d }} days past expiry{% elif d <= 90 %}<i class="bi bi-alarm"></i> {{ d }} days remaining{% else %}Valid (&gt;{{ (d / 30) | int }} months){% endif %}
+            </div>
+          </td>
+          <td class="tw-text-[13px]">
+            {% if r.last_supplier_id %}<a class="cell-title" href="{{ url_for('suppliers.detail', supplier_id=r.last_supplier_id) }}">{{ r.last_supplier }}</a>
+            {% else %}<span class="text-muted-2">No purchase history</span>{% endif %}
+          </td>
+          <td class="text-end num fw-semibold">{{ (suggest * r.cost_price) | money }}<div class="cell-sub">{{ suggest }} units</div></td>
+          <td class="text-end">
+            {% if r.alert_status == 'EXPIRED' %}
+              <span class="pill pill-danger no-dot">Vendor return</span>
+            {% elif r.alert_status in ('EXPIRING_SOON', 'EXPIRY_WATCH') %}
+              <span class="pill pill-warning no-dot">FIFO first</span>
+            {% else %}
+              <a class="btn btn-sm btn-brand text-nowrap" href="{{ url_for('purchases.new', medicine_id=r.medicine_id, supplier_id=r.last_supplier_id) }}"><i class="bi bi-plus-lg"></i> Quick PO</a>
+            {% endif %}
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="7">{{ empty('No alerts. Inventory is healthy.', 'bi-shield-check') }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {{ pager(page, 'alerts') }}
+</section>
+
+<section class="card-pc mt-4">
+  <div class="card-head">
+    <span class="kpi-icon position-static"><i class="bi bi-terminal"></i></span>
+    <div class="me-auto">
+      <h2>Stock Audit Query &amp; Auto-Alert Rules</h2>
+      <div class="sub">Classification runs inside the database with a CASE expression. Parameters :today, :soon and :watch are bound as prepared-statement values.</div>
+    </div>
+    <span class="pill pill-success">Rules active</span>
+  </div>
+  <div class="card-body-pc">
+    {{ sql_panel(alert_sql, 'Alert classification query') }}
+    <div class="note-box amber mt-3">
+      <b><i class="bi bi-shield-check me-1"></i>DBMS integrity &amp; patient safety:</b> expired medicines are blocked from checkout because each sale
+      re-reads <code>expiry_date</code> inside the transaction, and <code>CHECK (stock_quantity &gt;= 0)</code> prevents overselling.
+    </div>
+  </div>
+</section>
+{% endblock %}

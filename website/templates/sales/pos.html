@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+{% from "_macros.html" import crumbs, sql_panel %}
+{% block title %}Sales & Billing (POS){% endblock %}
+{% block content %}
+{{ crumbs([('Dashboard', url_for('dashboard.index')), ('Sales & Billing', none), ('New POS Transaction (sales & sale_items)', none)]) }}
+
+<section class="card-pc card-body-pc mb-4">
+  <div class="d-flex flex-wrap gap-3 justify-content-between align-items-start mb-3">
+    <div>
+      <div class="d-flex align-items-center gap-2 flex-wrap">
+        <h1 class="page-title tw-text-[26px] mb-0">Sales &amp; Billing Terminal (POS)</h1>
+        <span class="pill pill-mint">LIVE DISPENSING</span>
+      </div>
+      <p class="page-sub mt-1">Process prescription &amp; over-the-counter sales with transactional inventory deductions.</p>
+    </div>
+    <div class="seg">
+      <a class="active" href="{{ url_for('sales.pos') }}"><i class="bi bi-upc-scan"></i> Active POS Terminal</a>
+      <a href="{{ url_for('sales.index') }}"><i class="bi bi-receipt"></i> Sales History &amp; Invoices <span class="count">{{ history_count }}</span></a>
+    </div>
+  </div>
+  <div class="row g-3 row-cols-1 row-cols-sm-2 row-cols-xl-4">
+    <div class="col"><div class="kpi d-flex gap-3 align-items-center py-3"><span class="kpi-icon position-static"><i class="bi bi-cash-coin"></i></span><div><div class="kpi-label">Today's revenue</div><div class="fw-800 fs-5">{{ stats.revenue | money }} <span class="tw-text-xs text-muted-2 fw-normal">({{ stats.txns }} sales)</span></div></div></div></div>
+    <div class="col"><div class="kpi d-flex gap-3 align-items-center py-3"><span class="kpi-icon position-static"><i class="bi bi-wallet2"></i></span><div><div class="kpi-label">Cash drawer (today)</div><div class="fw-800 fs-5">{{ stats.cash | money }}</div></div></div></div>
+    <div class="col"><div class="kpi d-flex gap-3 align-items-center py-3"><span class="kpi-icon position-static"><i class="bi bi-pc-display"></i></span><div><div class="kpi-label">Active register</div><div class="fw-800 fs-5">#01 Main Counter</div></div></div></div>
+    <div class="col"><div class="kpi d-flex gap-3 align-items-center py-3"><span class="kpi-icon position-static mono tw-text-xs fw-bold">ACID</span><div><div class="kpi-label">Transaction mode</div><div class="fw-bold mono tw-text-sm tw-text-brand-700">{{ db_engine }} · atomic commit</div></div></div></div>
+  </div>
+</section>
+
+<div class="row g-4">
+  <div class="col-xl-7">
+    <div class="card-pc card-body-pc mb-3">
+      <div class="input-icon mb-3">
+        <i class="bi bi-upc-scan"></i>
+        <input class="form-control form-control-lg tw-text-base" id="posSearch" placeholder="Search medicine by name, generic, SKU or scan barcode" autocomplete="off" aria-label="Search medicine">
+        <span class="pill pill-mint no-dot mono position-absolute top-50 end-0 translate-middle-y me-2">F2: SCAN</span>
+      </div>
+      <div class="chip-row" id="catChips">
+        <button type="button" class="chip-filter active" data-cat="">All ({{ medicines | length }})</button>
+        {% for c in categories %}<button type="button" class="chip-filter" data-cat="{{ c.category_id }}">{{ c.category_name }} ({{ c.n }})</button>{% endfor %}
+      </div>
+    </div>
+    <section class="card-pc">
+      <div class="card-head">
+        <h2 class="me-auto tw-text-base">Clinical Formulary Results</h2>
+        <span class="pill pill-muted no-dot" id="matchCount">Showing {{ medicines | length }} matches</span>
+        <span class="tw-text-xs text-muted-2 d-none d-md-inline"><span class="dot me-1"></span>Live stock from database</span>
+      </div>
+      <div id="posResults" class="tw-max-h-[640px] tw-overflow-y-auto" role="listbox" aria-label="Medicines"></div>
+      <div class="border-top px-3 py-2 kbd-hints d-flex flex-wrap gap-3">
+        <span><kbd>↑</kbd>/<kbd>↓</kbd> Select medicine</span><span><kbd>Enter</kbd> Add to cart</span>
+        <span><kbd>F4</kbd> Customer selector</span><span><kbd>F9</kbd> Complete payment</span>
+      </div>
+    </section>
+  </div>
+
+  <div class="col-xl-5">
+    <section class="card-pc">
+      <div class="card-body-pc border-bottom">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <label class="form-label mb-0" for="posCustomer"><i class="bi bi-person me-1"></i>Select Patient / Customer</label>
+          <button type="button" class="btn btn-sm btn-link tw-text-brand-700 fw-semibold p-0" data-bs-toggle="modal" data-bs-target="#customerModal"
+                  data-action="{{ url_for('customers.quick_create') }}" data-title="Add New Patient"><i class="bi bi-person-plus me-1"></i>Add New Patient</button>
+        </div>
+        <select class="form-select" id="posCustomer">
+          <option value="">Walk-in customer (no record)</option>
+          {% for c in customers %}<option value="{{ c.customer_id }}">{{ c.customer_name }} ({{ c.customer_id | code('customer') }}){{ ' ⚠ ' ~ c.allergies ~ ' allergy' if c.allergies }}</option>{% endfor %}
+        </select>
+        <div class="allergy-alert mt-3 d-none" id="allergyAlert" role="alert"></div>
+      </div>
+
+      <div class="card-body-pc border-bottom">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <span class="form-label caps mb-0">Current cart items <span class="pill pill-brand no-dot ms-1" id="cartCount">0 items</span></span>
+          <button type="button" class="btn btn-sm btn-link text-danger p-0 fw-semibold" id="clearCart"><i class="bi bi-cart-x me-1"></i>Clear Cart</button>
+        </div>
+        <div id="cartLines" class="tw-max-h-[330px] tw-overflow-y-auto"></div>
+        <div class="row g-2 mt-2">
+          <div class="col-7">
+            <label class="form-label tw-text-xs" for="posRx">Prescription doctor &amp; Rx serial (optional)</label>
+            <input class="form-control form-control-sm mono" id="posRx" maxlength="80" placeholder="RX-2026-0001 / Dr. Name">
+          </div>
+          <div class="col-5">
+            <label class="form-label tw-text-xs" for="posDiscount">Discount %</label>
+            <input class="form-control form-control-sm" type="number" id="posDiscount" min="0" max="100" step="0.5" value="0">
+          </div>
+        </div>
+      </div>
+
+      <div class="card-body-pc border-bottom">
+        <div class="d-flex justify-content-between tw-text-[13px] mb-1"><span>Subtotal (<span id="sumItems">0</span> items):</span><span class="num" id="sumSubtotal">{{ 0 | money }}</span></div>
+        <div class="d-flex justify-content-between tw-text-[13px] mb-1 tw-text-brand-700"><span>Discount:</span><span class="num" id="sumDiscount">-{{ 0 | money }}</span></div>
+        <div class="d-flex justify-content-between tw-text-[13px] mb-2"><span>Tax / VAT ({{ (tax_rate * 100) | round(1) }}%):</span><span class="num" id="sumTax">{{ 0 | money }}</span></div>
+        <div class="d-flex justify-content-between align-items-center"><span class="fw-bold fs-5">Grand Total:</span><span class="grand-total" id="sumTotal">{{ 0 | money }}</span></div>
+      </div>
+
+      <div class="card-body-pc">
+        <div class="form-label caps">Payment method</div>
+        <div class="row g-2 mb-3" id="payMethods">
+          {% set icons = {'Cash': 'bi-cash-stack', 'Card': 'bi-credit-card', 'Mobile Banking': 'bi-phone', 'Insurance': 'bi-shield-check'} %}
+          {% for m in payment_methods %}
+            <div class="col-3"><button type="button" class="pay-opt {{ 'active' if loop.first }}" data-method="{{ m }}"><i class="bi {{ icons[m] }}"></i>{{ 'Mobile' if m == 'Mobile Banking' else m }}</button></div>
+          {% endfor %}
+        </div>
+        <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+          <label class="form-label mb-0" for="posPaid">Amount tendered / paid</label>
+          <div class="d-flex gap-1" id="quickPaid"></div>
+        </div>
+        <div class="input-group mb-3">
+          <span class="input-group-text fw-bold">{{ currency }}</span>
+          <input class="form-control form-control-lg mono fw-bold" id="posPaid" type="number" min="0" step="0.01" placeholder="0.00">
+          <span class="input-group-text tw-bg-brand-50 tw-text-brand-700 fw-bold">CHANGE: <span class="ms-1 mono" id="posChange">{{ 0 | money }}</span></span>
+        </div>
+        <div class="alert alert-danger d-none py-2" id="posError" role="alert"></div>
+        <button type="button" class="btn btn-brand btn-lg w-100 py-3 fw-bold" id="completeSale" disabled>
+          <i class="bi bi-check-circle-fill me-2"></i>Complete Sale &amp; Print Invoice [F9]
+        </button>
+        <a href="{{ url_for('sales.index') }}" class="btn btn-soft w-100 mt-2"><i class="bi bi-clock-history me-2"></i>Sales History</a>
+      </div>
+    </section>
+  </div>
+</div>
+
+<section class="card-pc card-body-pc mt-4">
+  <div class="d-flex gap-3 align-items-start mb-3">
+    <span class="kpi-icon position-static flex-shrink-0"><i class="bi bi-shield-lock"></i></span>
+    <div class="flex-grow-1 min-w-0">
+      <h2 class="tw-text-lg fw-bold mb-1">DBMS Transactional Integrity &amp; ACID Guarantees <span class="pill pill-mint no-dot mono ms-1">{{ db_engine }}</span></h2>
+      <div class="text-muted-2 tw-text-[13px]">Every sale runs inside one transaction: stock is re-checked (and row-locked on MySQL InnoDB), the bill and its
+        items are inserted, and stock is decremented. Any failure rolls the whole sale back. Prices always come from the database.</div>
+    </div>
+  </div>
+  {{ sql_panel("-- Executed SQL flow for one sale
+START TRANSACTION;
+SELECT medicine_id, price, stock_quantity, expiry_date FROM medicines WHERE medicine_id = ? FOR UPDATE;  -- row lock (InnoDB)
+INSERT INTO sales (customer_id, sale_date, subtotal, discount_amount, tax_amount, total_amount, payment_method, amount_paid)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+UPDATE sales SET invoice_no = ? WHERE sale_id = ?;  -- e.g. INV-2026-00441
+INSERT INTO sale_items (sale_id, medicine_id, quantity, unit_price) VALUES (?, ?, ?, ?);  -- per cart line
+UPDATE medicines SET stock_quantity = stock_quantity - ? WHERE medicine_id = ? AND stock_quantity >= ?;
+COMMIT;  -- or ROLLBACK if stock is insufficient / item expired", 'Transaction flow') }}
+</section>
+
+{% set quick_customer = true %}
+{% set types = ('General', 'Chronic Rx', 'Insured') %}
+{% set genders = ('Male', 'Female', 'Other') %}
+{% include "partials/customer_modal.html" %}
+
+<script type="application/json" id="posData">{{ {
+  'medicines': medicines, 'customers': customers, 'currency': currency, 'taxRate': tax_rate,
+  'checkoutUrl': url_for('sales.checkout'), 'preselect': request.args.get('customer', '')
+} | tojson }}</script>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/pos.js') }}"></script>
+{% endblock %}

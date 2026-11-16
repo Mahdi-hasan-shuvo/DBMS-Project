@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% from "_macros.html" import kcard, pager, crumbs, empty, delete_form %}
+{% block title %}Customers{% endblock %}
+{% block content %}
+<div class="crumbs"><span class="tbl-chip">SQL: customers</span><span>·</span><span>Primary key: customer_id</span></div>
+<div class="page-head">
+  <div>
+    <h1 class="page-title">Customers &amp; Patients Management</h1>
+    <p class="page-sub">Manage registered pharmacy customers, allergies on file and purchase history
+      (<span class="tbl-chip">customers</span> 1 : N <span class="tbl-chip">sales</span>).</p>
+  </div>
+  <div class="d-flex gap-2 flex-wrap">
+    <a class="btn btn-soft" href="{{ url_for('customers.export', **request.args) }}"><i class="bi bi-download me-2"></i>Export Directory</a>
+    <button class="btn btn-brand" type="button" data-bs-toggle="modal" data-bs-target="#customerModal"
+            data-action="{{ url_for('customers.create') }}" data-title="Add Customer"><i class="bi bi-person-plus me-2"></i>Add Customer</button>
+  </div>
+</div>
+
+<div class="row g-3 mb-4 row-cols-1 row-cols-sm-2 row-cols-xl-4">
+  <div class="col">
+    {% call kcard('Total Registered', kpi.total | num, 'bi-people', 'customers') %}
+      <span class="trend-up"><i class="bi bi-graph-up-arrow me-1"></i>+{{ kpi.new_week }} this week</span>
+    {% endcall %}
+  </div>
+  <div class="col">{{ kcard('Chronic Rx Profiles', kpi.chronic, 'bi-clipboard2-pulse', 'customers', 'info', kpi.insured ~ ' insured customers') }}</div>
+  <div class="col">
+    {% call kcard('Total Sales Volume', kpi.volume | money, 'bi-cash-stack') %}
+      Avg {{ (kpi.volume / kpi.orders if kpi.orders else 0) | money }} / order · {{ kpi.orders }} orders
+    {% endcall %}
+  </div>
+  <div class="col">{{ kcard('Allergy Records', kpi.allergies, 'bi-exclamation-octagon', 'on file', 'warn', 'Flagged at checkout') }}</div>
+</div>
+
+<form class="card-pc mb-4" method="get" data-autosubmit>
+  <div class="card-body-pc">
+    <div class="row g-3 align-items-end">
+      <div class="col-lg-6">
+        <div class="input-icon"><i class="bi bi-search"></i>
+          <input class="form-control" name="q" value="{{ f.q }}" placeholder="Search by customer name, phone, email or city" aria-label="Search customers">
+        </div>
+      </div>
+      <div class="col-sm-5 col-lg-2">
+        <label class="form-label caps" for="f_type">Type</label>
+        <select class="form-select" id="f_type" name="type">
+          <option value="">All types</option>
+          {% for t in types %}<option {{ 'selected' if f.type == t }}>{{ t }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-sm-5 col-lg-3">
+        <label class="form-label caps" for="f_sort">Sort</label>
+        <select class="form-select" id="f_sort" name="sort">
+          {% for v, l in [('recent', 'Recent visit'), ('name', 'Name (A-Z)'), ('spend', 'Total spent'), ('visits', 'Most visits'), ('newest', 'Newest registered')] %}
+            <option value="{{ v }}" {{ 'selected' if f.sort == v }}>{{ l }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-sm-2 col-lg-1">
+        <a class="btn btn-soft w-100" href="{{ url_for('customers.index') }}" title="Reset filters" aria-label="Reset filters"><i class="bi bi-arrow-clockwise"></i></a>
+      </div>
+    </div>
+  </div>
+</form>
+
+<section class="card-pc">
+  <div class="table-responsive">
+    <table class="table table-pc">
+      <thead><tr><th>Customer ID</th><th>Customer / Patient</th><th>Contact Details</th><th>City</th><th class="text-center">Orders</th><th class="text-end">Total Spent</th><th>Classification</th><th class="text-end">Action</th></tr></thead>
+      <tbody>
+      {% for c in rows %}
+        {% set age = age_from(c.date_of_birth) %}
+        <tr>
+          <td><span class="id-chip">{{ c.customer_id | code('customer') }}</span></td>
+          <td>
+            <div class="d-flex align-items-center gap-3">
+              <span class="avatar avatar-sm">{{ c.customer_name | initials }}</span>
+              <div>
+                <a class="cell-title" href="{{ url_for('customers.detail', customer_id=c.customer_id) }}">{{ c.customer_name }}</a>
+                <div class="cell-sub d-flex flex-wrap gap-2">
+                  <span>{{ c.gender or '—' }}{% if age is not none %}, {{ age }} yrs{% endif %}</span>
+                  {% if c.allergies %}<span class="text-danger fw-semibold"><i class="bi bi-exclamation-triangle"></i> {{ c.allergies }}</span>
+                  {% else %}<span class="tw-text-brand-700">NKDA</span>{% endif %}
+                </div>
+              </div>
+            </div>
+          </td>
+          <td class="tw-text-[13px]">{{ c.phone }}<div class="cell-sub mono">{{ c.email or '' }}</div></td>
+          <td class="tw-text-[13px]">{{ c.city or '—' }}<div class="cell-sub">{{ c.address or '' }}</div></td>
+          <td class="text-center"><b>{{ c.visits }}</b><div class="cell-sub">{{ ('last ' ~ (c.last_visit | date('%b %d'))) if c.last_visit else 'visits' }}</div></td>
+          <td class="text-end num fw-semibold">{{ c.total_spent | money }}</td>
+          <td>
+            {% set tone = {'Chronic Rx': 'pill-info', 'Insured': 'pill-success'}.get(c.customer_type, 'pill-muted') %}
+            <span class="pill {{ tone }}">{{ c.customer_type }}</span>
+          </td>
+          <td class="text-end text-nowrap">
+            <a class="btn-icon" href="{{ url_for('customers.detail', customer_id=c.customer_id) }}" title="View" aria-label="View"><i class="bi bi-eye"></i></a>
+            <button type="button" class="btn-icon" title="Edit" aria-label="Edit" data-bs-toggle="modal" data-bs-target="#customerModal"
+                    data-action="{{ url_for('customers.update', customer_id=c.customer_id) }}" data-title="Edit {{ c.customer_name }}"
+                    data-record='{{ c | tojson }}'><i class="bi bi-pencil-square"></i></button>
+            {{ delete_form(url_for('customers.delete', customer_id=c.customer_id), 'Delete customer ' ~ c.customer_name ~ '?') }}
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="8">{{ empty('No customers match these filters.', 'bi-search') }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {{ pager(page, 'registered customers') }}
+</section>
+
+<div class="note-box mt-4 d-flex gap-3 align-items-start">
+  <i class="bi bi-terminal tw-text-brand-700 fs-5"></i>
+  <div><b>DBMS schema context:</b> <code>customers.customer_id</code> (1 : N) <code>sales.customer_id</code> with
+    ON DELETE RESTRICT, so customers with sales history are kept. Walk-in sales store <code>customer_id = NULL</code>.</div>
+</div>
+{% include "partials/customer_modal.html" %}
+{% endblock %}

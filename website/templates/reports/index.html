@@ -1,0 +1,341 @@
+{% extends "base.html" %}
+{% from "_macros.html" import kcard, crumbs, empty, sql_panel %}
+{% block title %}Reports{% endblock %}
+{% block content %}
+{{ crumbs([('Dashboard', url_for('dashboard.index')), ('Analytics & Intelligence', none), ('Reports & aggregated queries', none)]) }}
+<div class="page-head">
+  <div>
+    <h1 class="page-title">Pharmacy Reports &amp; Analytics Center</h1>
+    <p class="page-sub">Clinical and financial reporting generated from transactional records with JOIN and aggregate SQL queries.</p>
+  </div>
+  <div class="d-flex flex-wrap gap-2 no-print">
+    <button class="btn btn-soft" type="button" data-print><i class="bi bi-printer me-2"></i>Print Report</button>
+    <a class="btn btn-brand" href="{{ url_for('reports.export', **request.args) }}"><i class="bi bi-download me-2"></i>Export to CSV / Excel</a>
+  </div>
+</div>
+
+{% set icons = {'sales': 'bi-graph-up', 'purchases': 'bi-truck', 'inventory': 'bi-boxes', 'stock': 'bi-exclamation-triangle'} %}
+<div class="card-pc card-body-pc mb-3 py-2 no-print">
+  <div class="seg w-100 border-0 bg-transparent">
+    {% for key, label in tabs.items() %}
+      <a href="{{ url_with(tab=key) }}" class="{{ 'active' if tab == key }}"><i class="bi {{ icons[key] }}"></i>{{ label }}{% if key == 'sales' and tab == key %} <span class="pill pill-brand no-dot py-0">Live</span>{% endif %}</a>
+    {% endfor %}
+  </div>
+</div>
+
+{% if tab in ('sales', 'purchases') %}
+<form class="card-pc card-body-pc mb-4 no-print" method="get">
+  <input type="hidden" name="tab" value="{{ tab }}">
+  <div class="row g-3 align-items-end">
+    <div class="col-12 col-xxl-5">
+      <div class="form-label caps">Date range preset</div>
+      <div class="seg">
+        {% for key, label in [('today', 'Today'), ('week', 'Last 7 Days'), ('month', 'This Month'), ('quarter', 'Last 90 Days'), ('custom', 'Custom')] %}
+          <a href="{{ url_with(preset=key, start=None, end=None) if key != 'custom' else '#customRange' }}" class="{{ 'active' if preset == key }}" {% if key == 'custom' %}data-custom{% endif %}>{{ label }}</a>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="col-sm-4 col-xl-2">
+      <label class="form-label caps" for="r_start">Start date</label>
+      <input class="form-control" type="date" id="r_start" name="start" value="{{ start.isoformat() }}">
+    </div>
+    <div class="col-sm-4 col-xl-2">
+      <label class="form-label caps" for="r_end">End date</label>
+      <input class="form-control" type="date" id="r_end" name="end" value="{{ end.isoformat() }}">
+    </div>
+    {% if tab == 'sales' %}
+    <div class="col-sm-4 col-xl-2">
+      <label class="form-label caps" for="r_group">Group by</label>
+      <select class="form-select" id="r_group" name="group">
+        <option value="day" {{ 'selected' if group == 'day' }}>Daily breakdown</option>
+        <option value="month" {{ 'selected' if group == 'month' }}>Monthly breakdown</option>
+      </select>
+    </div>
+    {% endif %}
+    <div class="col-xl-1">
+      <input type="hidden" name="preset" value="custom">
+      <button class="btn btn-brand w-100" type="submit" title="Generate report"><i class="bi bi-play-fill"></i><span class="d-xl-none ms-1">Generate Report</span></button>
+    </div>
+  </div>
+</form>
+<div class="tw-text-sm text-muted-2 mb-3">Reporting period: <b class="text-body">{{ start | date }}</b> – <b class="text-body">{{ end | date }}</b></div>
+{% endif %}
+
+{# ============================================================== SALES #}
+{% if tab == 'sales' %}
+{% set t = data.totals %}
+<div class="row g-3 mb-4 row-cols-2 row-cols-lg-3 row-cols-xxl-5">
+  <div class="col">{{ kcard('Gross Sales Volume', t.gross | money, '', '', '', 'Before discounts & tax') }}</div>
+  <div class="col">
+    {% call kcard('Gross Profit (Margin)', t.profit | money) %}
+      <span class="pill pill-success no-dot">{{ '%.1f' | format(t.margin_pct) }}% margin</span> COGS {{ t.cogs | money }}
+    {% endcall %}
+  </div>
+  <div class="col">{{ kcard('Total Transactions', t.tx_count | num, 'bi-receipt', 'receipts', '', 'Collected ' ~ (t.collected | money)) }}</div>
+  <div class="col">{{ kcard('Units Dispensed', t.units | num, 'bi-capsule', 'units', 'info', 'Avg ' ~ ('%.2f' | format(t.units / t.tx_count if t.tx_count else 0)) ~ ' units / receipt') }}</div>
+  <div class="col">{{ kcard('Tax Collected', t.tax | money, 'bi-bank', '', 'warn', 'Discounts given ' ~ (t.discount | money)) }}</div>
+</div>
+
+<section class="card-pc mb-4">
+  <div class="card-head"><h2 class="me-auto">Revenue vs Gross Profit</h2><span class="sub">{{ 'Monthly' if group == 'month' else 'Daily' }} trend</span></div>
+  <div class="card-body-pc"><div class="chart-box"><canvas id="salesChart" role="img" aria-label="Revenue and profit trend"></canvas></div></div>
+</section>
+
+<section class="card-pc mb-4">
+  <div class="card-head">
+    <div class="me-auto"><h2>Dispensary Transaction Audit Ledger</h2><div class="sub">Aggregated by {{ 'month' if group == 'month' else 'day' }} with line-item margins (COGS at current cost price).</div></div>
+    <span class="tbl-chip">sales ⋈ sale_items ⋈ medicines</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-pc">
+      <thead><tr><th>Period</th><th class="text-end">Tx Count</th><th class="text-end">Units</th><th class="text-end">Gross Total</th><th class="text-end">Cost (COGS)</th><th class="text-end">Net Margin</th><th class="text-end">Discount</th><th class="text-end">Tax</th><th class="text-end">Collected</th></tr></thead>
+      <tbody>
+      {% for p in data.periods %}
+        <tr>
+          <td class="mono fw-semibold tw-text-brand-700">{{ p.bucket if group == 'month' else (p.bucket | date('%a, %b %d %Y')) }}</td>
+          <td class="text-end num">{{ p.tx_count }}</td>
+          <td class="text-end num">{{ p.units_sold }}</td>
+          <td class="text-end num fw-semibold">{{ p.gross_revenue | money }}</td>
+          <td class="text-end num text-muted-2">{{ p.cogs | money }}</td>
+          <td class="text-end num tw-text-brand-700">+{{ p.gross_profit | money }}<div class="tw-text-[11px]">{{ '%.1f' | format(p.margin_pct) }}%</div></td>
+          <td class="text-end num">{{ p.discount | money }}</td>
+          <td class="text-end num">{{ p.tax | money }}</td>
+          <td class="text-end num fw-bold">{{ p.collected | money }}</td>
+        </tr>
+      {% else %}<tr><td colspan="9">{{ empty('No sales in this period.') }}</td></tr>{% endfor %}
+      </tbody>
+      {% if data.periods %}
+      <tfoot><tr><td>Total</td><td class="text-end num">{{ t.tx_count }}</td><td class="text-end num">{{ t.units }}</td><td class="text-end num">{{ t.gross | money }}</td><td class="text-end num">{{ t.cogs | money }}</td><td class="text-end num">{{ t.profit | money }}</td><td class="text-end num">{{ t.discount | money }}</td><td class="text-end num">{{ t.tax | money }}</td><td class="text-end num">{{ t.collected | money }}</td></tr></tfoot>
+      {% endif %}
+    </table>
+  </div>
+</section>
+
+<div class="row g-4">
+  <div class="col-xl-5 d-flex flex-column gap-4">
+    <section class="card-pc">
+      <div class="card-head"><div class="me-auto"><h2><i class="bi bi-fire tw-text-brand-700 me-1"></i>Fast-Moving Pharmaceuticals</h2><div class="sub">Top 5 by units sold in this period</div></div><span class="pill pill-mint no-dot">Top 5</span></div>
+      <div class="card-body-pc">
+        {% for m in data.top %}
+          <div class="alert-item">
+            <div class="d-flex gap-3 align-items-center min-w-0">
+              <span class="avatar avatar-sm {{ 'tw-bg-brand-700 tw-text-white' if loop.first }}">{{ loop.index }}</span>
+              <div class="min-w-0"><a class="title text-body" href="{{ url_for('medicines.detail', medicine_id=m.medicine_id) }}">{{ m.medicine_name }}</a><div class="meta mono">{{ m.generic_name or '' }}</div></div>
+            </div>
+            <div class="text-end text-nowrap"><div class="fw-bold mono">{{ m.units }} units</div><div class="tw-text-xs tw-text-brand-700 fw-semibold">{{ m.revenue | money }} rev</div></div>
+          </div>
+        {% else %}{{ empty('No sales in this period.') }}{% endfor %}
+      </div>
+    </section>
+    <section class="card-pc">
+      <div class="card-head"><h2>Payment Methods &amp; Categories</h2></div>
+      <div class="card-body-pc">
+        {% for pm in data.payments %}
+          <div class="d-flex justify-content-between tw-text-[13px] py-1"><span>{{ pm.payment_method }} <span class="text-muted-2">({{ pm.txns }})</span></span><span class="num fw-semibold">{{ pm.amount | money }}</span></div>
+        {% endfor %}
+        <hr>
+        {% set cat_max = (data.by_category | map(attribute='revenue') | max) if data.by_category else 1 %}
+        {% for c in data.by_category %}
+          <div class="tw-text-[13px] mb-2">
+            <div class="d-flex justify-content-between"><span>{{ c.category_name }}</span><span class="num">{{ c.revenue | money }}</span></div>
+            <div class="meter"><span style="width: {{ (c.revenue / cat_max * 100) | round(1) }}%"></span></div>
+          </div>
+        {% endfor %}
+      </div>
+    </section>
+  </div>
+  <div class="col-xl-7">
+    <section class="card-pc h-100">
+      <div class="card-head"><span class="kpi-icon position-static"><i class="bi bi-code-slash"></i></span><div class="me-auto"><h2>SQL Aggregate Query Inspector</h2><div class="sub">Parameterized prepared statement executed for the ledger above</div></div></div>
+      <div class="card-body-pc">
+        {{ sql_panel(data.sql, 'Executed query') }}
+        <div class="row g-2 mt-2 mono tw-text-xs">
+          <div class="col-sm-6"><div class="note-box py-2">param 1 <b class="tw-text-brand-700">'{{ data.params[0] }}'</b></div></div>
+          <div class="col-sm-6"><div class="note-box py-2">param 2 <b class="tw-text-brand-700">'{{ data.params[1] }}'</b></div></div>
+        </div>
+        <div class="tw-text-xs text-muted-2 mt-2"><i class="bi bi-check-circle tw-text-brand-700"></i> Uses index <code>idx_sales_date</code> on <code>sales(sale_date)</code> for the range filter.</div>
+      </div>
+    </section>
+  </div>
+</div>
+{% endif %}
+
+{# ========================================================== PURCHASES #}
+{% if tab == 'purchases' %}
+{% set t = data.totals %}
+<div class="row g-3 mb-4 row-cols-2 row-cols-lg-4">
+  <div class="col">{{ kcard('Total Procurement', t.spent | money, 'bi-cash-stack', '', '', 'Received orders incl. tax & shipping') }}</div>
+  <div class="col">{{ kcard('Received Orders', t.orders, 'bi-box-seam', 'POs', '', t.drafts ~ ' draft(s) in period') }}</div>
+  <div class="col">{{ kcard('Units Received', t.units | num, 'bi-boxes', 'units', 'info') }}</div>
+  <div class="col">{{ kcard('Active Suppliers', t.suppliers, 'bi-truck', 'in period') }}</div>
+</div>
+<div class="row g-4">
+  <div class="col-xl-7">
+    <section class="card-pc mb-4">
+      <div class="card-head"><h2 class="me-auto">Supplier Procurement Summary</h2><span class="tbl-chip">purchases ⋈ suppliers ⋈ purchase_items</span></div>
+      <div class="table-responsive">
+        <table class="table table-pc">
+          <thead><tr><th>Supplier</th><th class="text-end">Orders</th><th class="text-end">Units</th><th class="text-end">Goods Value</th><th style="width:150px">Share</th></tr></thead>
+          <tbody>
+          {% set sup_total = data.suppliers | sum(attribute='goods_value') %}
+          {% for s in data.suppliers %}
+            <tr>
+              <td><a class="cell-title" href="{{ url_for('suppliers.detail', supplier_id=s.supplier_id) }}">{{ s.supplier_name }}</a></td>
+              <td class="text-end num">{{ s.orders }}</td><td class="text-end num">{{ s.units }}</td>
+              <td class="text-end num fw-semibold">{{ s.goods_value | money }}</td>
+              <td><div class="meter"><span style="width: {{ (s.goods_value / sup_total * 100) | round(1) if sup_total else 0 }}%"></span></div></td>
+            </tr>
+          {% else %}<tr><td colspan="5">{{ empty('No received purchases in this period.') }}</td></tr>{% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+    <section class="card-pc">
+      <div class="card-head"><h2>Purchase Orders in Period</h2></div>
+      <div class="table-responsive">
+        <table class="table table-pc">
+          <thead><tr><th>PO</th><th>Supplier</th><th>Date</th><th>Status</th><th class="text-end">Total</th></tr></thead>
+          <tbody>
+          {% for o in data.orders %}
+            <tr><td><a class="mono fw-semibold tw-text-xs" href="{{ url_for('purchases.detail', purchase_id=o.purchase_id) }}">{{ o.po_number }}</a></td><td>{{ o.supplier_name }}</td><td>{{ o.purchase_date | date }}</td>
+              <td><span class="pill {{ 'pill-success' if o.status == 'Received' else 'pill-warning' }}">{{ o.status }}</span></td><td class="text-end num">{{ o.total_amount | money }}</td></tr>
+          {% else %}<tr><td colspan="5">{{ empty('No purchase orders in this period.') }}</td></tr>{% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+  <div class="col-xl-5 d-flex flex-column gap-4">
+    <section class="card-pc">
+      <div class="card-head"><h2>Most Purchased Medicines</h2></div>
+      <div class="card-body-pc">
+        {% for m in data.top %}
+          <div class="alert-item"><div><a class="title text-body" href="{{ url_for('medicines.detail', medicine_id=m.medicine_id) }}">{{ m.medicine_name }}</a><div class="meta">{{ m.units }} units received</div></div><span class="num fw-semibold">{{ m.spent | money }}</span></div>
+        {% else %}{{ empty('Nothing received in this period.') }}{% endfor %}
+      </div>
+    </section>
+    <section class="card-pc card-body-pc">{{ sql_panel(data.sql, 'Supplier summary query') }}</section>
+  </div>
+</div>
+{% endif %}
+
+{# ========================================================== INVENTORY #}
+{% if tab == 'inventory' %}
+{% set t = data.totals %}
+<div class="row g-3 mb-4 row-cols-2 row-cols-lg-4">
+  <div class="col">{{ kcard('SKUs in Formulary', t.skus, 'bi-capsule', 'medicines') }}</div>
+  <div class="col">{{ kcard('Units on Hand', t.units | num, 'bi-boxes', 'units') }}</div>
+  <div class="col">{{ kcard('Valuation at Cost', t.cost | money, 'bi-cash-stack', '', 'info') }}</div>
+  <div class="col">{{ kcard('Retail Value', t.retail | money, 'bi-tags', '', '', 'Potential margin ' ~ (t.margin | money)) }}</div>
+</div>
+<div class="row g-4">
+  <div class="col-xl-7">
+    <section class="card-pc">
+      <div class="card-head"><h2 class="me-auto">Medicine Formulary &amp; Valuation by Category</h2><span class="tbl-chip">categories ⟕ medicines</span></div>
+      <div class="table-responsive">
+        <table class="table table-pc">
+          <thead><tr><th>Category</th><th class="text-end">SKUs</th><th class="text-end">Units</th><th class="text-end">Cost Value</th><th class="text-end">Retail Value</th><th style="width:140px">Share</th></tr></thead>
+          <tbody>
+          {% for r in data.rows %}
+            <tr>
+              <td><a class="cell-title" href="{{ url_for('medicines.index', category=r.category_id) }}">{{ r.category_name }}</a></td>
+              <td class="text-end num">{{ r.skus }}</td><td class="text-end num">{{ r.units | num }}</td>
+              <td class="text-end num fw-semibold">{{ r.cost_value | money }}</td><td class="text-end num">{{ r.retail_value | money }}</td>
+              <td><div class="meter"><span style="width: {{ (r.cost_value / t.cost * 100) | round(1) if t.cost else 0 }}%"></span></div></td>
+            </tr>
+          {% endfor %}
+          </tbody>
+          <tfoot><tr><td>Total</td><td class="text-end num">{{ t.skus }}</td><td class="text-end num">{{ t.units | num }}</td><td class="text-end num">{{ t.cost | money }}</td><td class="text-end num">{{ t.retail | money }}</td><td></td></tr></tfoot>
+        </table>
+      </div>
+    </section>
+  </div>
+  <div class="col-xl-5"><section class="card-pc card-body-pc">{{ sql_panel(data.sql, 'Valuation query (LEFT JOIN + GROUP BY)') }}</section></div>
+</div>
+{% endif %}
+
+{# ============================================================== STOCK #}
+{% if tab == 'stock' %}
+{% set t = data.totals %}
+<div class="row g-3 mb-4 row-cols-2 row-cols-lg-4">
+  <div class="col">{{ kcard('Below Reorder Level', t.low, 'bi-exclamation-triangle', 'medicines', 'warn', t.out ~ ' completely out of stock') }}</div>
+  <div class="col">{{ kcard('Estimated Reorder Cost', t.reorder_cost | money, 'bi-cart-plus', '', '', 'Restock to 3× reorder level') }}</div>
+  <div class="col">{{ kcard('Expiring / Expired', t.expiring, 'bi-calendar-x', 'batches', 'danger', t.expired ~ ' already expired') }}</div>
+  <div class="col">{{ kcard('Value at Risk', t.value_at_risk | money, 'bi-cash', '', 'danger', 'Stock value of expiring lots') }}</div>
+</div>
+<div class="row g-4">
+  <div class="col-xl-6">
+    <section class="card-pc h-100">
+      <div class="card-head"><h2 class="me-auto">Low-Stock &amp; Reorder Audit</h2><a class="btn btn-sm btn-brand no-print" href="{{ url_for('alerts.index', tab='stock') }}">Open alerts</a></div>
+      <div class="table-responsive">
+        <table class="table table-pc">
+          <thead><tr><th>Medicine</th><th>Category</th><th class="text-end">Stock</th><th class="text-end">Reorder</th><th class="text-end">Deficit</th></tr></thead>
+          <tbody>
+          {% for r in data.low %}
+            <tr class="{{ 'row-danger' if r.stock_quantity == 0 }}"><td><a class="cell-title" href="{{ url_for('medicines.detail', medicine_id=r.medicine_id) }}">{{ r.medicine_name }}</a></td><td>{{ r.category_name }}</td>
+              <td class="text-end num {{ 'text-danger fw-bold' if r.stock_quantity == 0 }}">{{ r.stock_quantity }}</td><td class="text-end num">{{ r.reorder_level }}</td><td class="text-end num text-danger">−{{ r.deficit }}</td></tr>
+          {% else %}<tr><td colspan="5">{{ empty('No medicines below reorder level.', 'bi-check2-circle') }}</td></tr>{% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+  <div class="col-xl-6">
+    <section class="card-pc h-100">
+      <div class="card-head"><h2>Expiry Report (next 90 days &amp; expired)</h2></div>
+      <div class="table-responsive">
+        <table class="table table-pc">
+          <thead><tr><th>Medicine</th><th>Batch</th><th>Expiry</th><th class="text-end">Stock</th><th class="text-end">Value at Risk</th></tr></thead>
+          <tbody>
+          {% for r in data.expiry %}
+            {% set d = days_until(r.expiry_date) %}
+            <tr class="{{ 'row-danger' if d < 0 else ('row-warn' if d <= 30) }}"><td><a class="cell-title" href="{{ url_for('medicines.detail', medicine_id=r.medicine_id) }}">{{ r.medicine_name }}</a></td><td class="mono tw-text-xs">{{ r.batch_no or '—' }}</td>
+              <td>{{ r.expiry_date | date }}<div class="cell-sub {{ 'text-danger' if d < 0 }}">{{ ('expired ' ~ (-d) ~ ' d ago') if d < 0 else (d ~ ' days left') }}</div></td>
+              <td class="text-end num">{{ r.stock_quantity }}</td><td class="text-end num">{{ r.value_at_risk | money }}</td></tr>
+          {% else %}<tr><td colspan="5">{{ empty('Nothing expires in the next 90 days.', 'bi-check2-circle') }}</td></tr>{% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+  <div class="col-12"><section class="card-pc card-body-pc">{{ sql_panel(data.sql, 'Low-stock query') }}</section></div>
+</div>
+{% endif %}
+
+<div class="note-box mt-4"><i class="bi bi-info-circle tw-text-brand-700 me-1"></i><b>Report integrity:</b> figures are computed live from
+  <code>sales</code>, <code>sale_items</code>, <code>purchases</code>, <code>purchase_items</code> and <code>medicines</code>. Header-level tax and
+  discount are aggregated separately from line items to avoid double counting in JOINs.</div>
+{% endblock %}
+
+{% block scripts %}
+{% if tab == 'sales' %}
+<script src="{{ url_for('static', filename='vendor/chartjs/chart.umd.min.js') }}"></script>
+<script>
+  (function () {
+    var data = {{ chart | tojson }}, currency = {{ currency | tojson }};
+    var el = document.getElementById('salesChart');
+    if (!el || !window.Chart) return;
+    new Chart(el, {
+      type: 'line',
+      data: {
+        labels: data.map(function (d) { return d.label; }),
+        datasets: [
+          { label: 'Gross revenue', data: data.map(function (d) { return d.revenue; }), borderColor: '#065f46', backgroundColor: 'rgba(16,185,129,.12)', fill: true, tension: .3, pointRadius: 2 },
+          { label: 'Gross profit', data: data.map(function (d) { return d.profit; }), borderColor: '#5eead4', backgroundColor: 'transparent', tension: .3, pointRadius: 2, borderDash: [5, 4] }
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+        plugins: { legend: { position: 'bottom' }, tooltip: { callbacks: { label: function (c) { return c.dataset.label + ': ' + currency + c.parsed.y.toFixed(2); } } } },
+        scales: { y: { ticks: { callback: function (v) { return currency + v; } }, grid: { color: '#eef2f0' } }, x: { grid: { display: false } } }
+      }
+    });
+  })();
+</script>
+{% endif %}
+<script>
+  document.querySelectorAll('[data-custom]').forEach(function (a) {
+    a.addEventListener('click', function (e) { e.preventDefault(); document.getElementById('r_start').focus(); });
+  });
+</script>
+{% endblock %}

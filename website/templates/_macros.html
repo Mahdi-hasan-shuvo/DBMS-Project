@@ -1,0 +1,84 @@
+{% macro kcard(label, value, icon='', unit='', tone='', foot='') -%}
+<div class="kpi {{ tone }}">
+  {% if icon %}<span class="kpi-icon"><i class="bi {{ icon }}"></i></span>{% endif %}
+  <div class="kpi-label pe-5">{{ label }}</div>
+  <div class="kpi-value">{{ value }}{% if unit %} <small>{{ unit }}</small>{% endif %}</div>
+  {% if foot or caller %}<div class="kpi-foot">{% if caller %}{{ caller() }}{% else %}{{ foot }}{% endif %}</div>{% endif %}
+</div>
+{%- endmacro %}
+
+{% macro pager(page, noun='records') -%}
+<div class="d-flex flex-wrap gap-3 align-items-center justify-content-between px-3 py-3 border-top">
+  <div class="d-flex flex-wrap align-items-center gap-3 tw-text-[13px] text-muted-2">
+    <span>Showing <b class="text-body">{{ page.start }}</b> to <b class="text-body">{{ page.end }}</b> of <b class="text-body">{{ page.total }}</b> {{ noun }}</span>
+    <span class="d-flex align-items-center gap-2">Rows per page:
+      <select class="form-select form-select-sm w-auto" data-nav-select aria-label="Rows per page">
+        {% for n in (10, 25, 50, 100) %}<option value="{{ url_with(per_page=n, page=None) }}" {{ 'selected' if page.per_page == n }}>{{ n }}</option>{% endfor %}
+      </select>
+    </span>
+  </div>
+  {% if page.pages > 1 %}
+  <nav aria-label="Pagination">
+    <ul class="pagination pager mb-0">
+      <li class="page-item {{ 'disabled' if page.page == 1 }}"><a class="page-link" href="{{ url_with(page=page.page - 1) }}" aria-label="Previous"><i class="bi bi-chevron-left"></i></a></li>
+      {% for n in page.window() %}
+        {% if n is none %}<li class="page-item disabled"><span class="page-link border-0 bg-transparent">…</span></li>
+        {% else %}<li class="page-item {{ 'active' if n == page.page }}"><a class="page-link" href="{{ url_with(page=n) }}">{{ n }}</a></li>{% endif %}
+      {% endfor %}
+      <li class="page-item {{ 'disabled' if page.page == page.pages }}"><a class="page-link" href="{{ url_with(page=page.page + 1) }}" aria-label="Next"><i class="bi bi-chevron-right"></i></a></li>
+    </ul>
+  </nav>
+  {% endif %}
+</div>
+{%- endmacro %}
+
+{% macro crumbs(items) -%}
+<div class="crumbs">
+  <i class="bi bi-house-door"></i>
+  {% for label, href in items %}
+    {% if not loop.first %}<i class="bi bi-chevron-right"></i>{% endif %}
+    {% if href %}<a href="{{ href }}">{{ label }}</a>{% elif loop.last %}<span class="here">{{ label }}</span>{% else %}<span>{{ label }}</span>{% endif %}
+  {% endfor %}
+</div>
+{%- endmacro %}
+
+{% macro sql_panel(sql, title='Executed SQL') -%}
+<div class="d-flex align-items-center justify-content-between mb-2">
+  <span class="tw-text-xs text-muted-2 mono text-uppercase">{{ title }}</span>
+  <button type="button" class="btn btn-sm btn-soft" data-copy-target="next"><i class="bi bi-clipboard me-1"></i>Copy SQL</button>
+</div>
+<pre class="sql-panel" data-highlight>{{ sql }}</pre>
+{%- endmacro %}
+
+{% macro empty(message, icon='bi-inbox') -%}
+<div class="empty"><i class="bi {{ icon }}"></i>{{ message }}</div>
+{%- endmacro %}
+
+{% macro stock_pill(status) -%}
+{% if status == 'expired' %}<span class="pill pill-danger">Expired</span>
+{% elif status == 'out' %}<span class="pill pill-danger">Out of stock</span>
+{% elif status == 'low' %}<span class="pill pill-warning">Low stock</span>
+{% elif status == 'expiring' %}<span class="pill pill-warning">Expiring</span>
+{% else %}<span class="pill pill-success">In stock</span>{% endif %}
+{%- endmacro %}
+
+{% macro stock_meter(qty, reorder) -%}
+{% set cap = [reorder * 3, 1] | max %}
+{% set pct = [(qty / cap * 100) | round | int, 100] | min %}
+<div class="d-flex justify-content-between gap-2 tw-text-[12.5px]">
+  <span class="fw-semibold {{ 'text-danger' if qty == 0 else ('tw-text-amber-700' if qty <= reorder else 'tw-text-brand-700') }}">{{ qty }} units</span>
+  <span class="text-muted-2">Min: {{ reorder }}</span>
+</div>
+<div class="meter {{ 'out' if qty == 0 else ('low' if qty <= reorder) }}"><span style="width: {{ pct }}%"></span></div>
+{%- endmacro %}
+
+{% macro delete_form(action, message, label='') -%}
+<form method="post" action="{{ action }}" class="d-inline" data-confirm="{{ message }}">
+  <button type="submit" class="btn-icon danger" title="Delete" aria-label="Delete"><i class="bi bi-trash3"></i>{% if label %} {{ label }}{% endif %}</button>
+</form>
+{%- endmacro %}
+
+{% macro payment_pill(method) -%}
+{% set icons = {'Cash': 'bi-cash-stack', 'Card': 'bi-credit-card', 'Mobile Banking': 'bi-phone', 'Insurance': 'bi-shield-check'} %}
+<span class="tw-inline-flex tw-items-center tw-gap-1 tw-text-slate-600"><i class="bi {{ icons.get(method, 'bi-wallet2') }}"></i> {{ method }}</span>
+{%- endmacro %}

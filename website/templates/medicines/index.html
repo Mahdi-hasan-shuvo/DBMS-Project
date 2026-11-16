@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+{% from "_macros.html" import kcard, pager, crumbs, empty, stock_pill, stock_meter, delete_form %}
+{% block title %}Medicines{% endblock %}
+{% block content %}
+{{ crumbs([('Inventory', none), ('Medicines Catalog', url_for('medicines.index')), ('medicines (' ~ db_engine ~ ')', none)]) }}
+<div class="page-head">
+  <div>
+    <h1 class="page-title">Medicine &amp; Drug Inventory</h1>
+    <p class="page-sub">Manage the pharmaceutical catalog, stock thresholds, pricing margins, batches and expiry dates
+      (<span class="tbl-chip">medicines</span> table).</p>
+  </div>
+  <div class="d-flex flex-wrap gap-2 no-print">
+    <a class="btn btn-soft" href="{{ url_for('medicines.export', **request.args) }}"><i class="bi bi-download me-2"></i>Export CSV</a>
+    <button class="btn btn-soft" type="button" data-print><i class="bi bi-printer me-2"></i>Print Formulary</button>
+    <button class="btn btn-brand" type="button" data-bs-toggle="modal" data-bs-target="#medicineModal"
+            data-action="{{ url_for('medicines.create') }}" data-title="Add New Medicine"><i class="bi bi-plus-circle me-2"></i>Add New Medicine</button>
+  </div>
+</div>
+
+{% set total = kpi.total or 0 %}
+<div class="row g-3 mb-4 row-cols-1 row-cols-sm-2 row-cols-xl-4">
+  <div class="col">
+    {% call kcard('Total Catalog', total, 'bi-capsule-pill', 'items') %}
+      <span class="tw-text-brand-700"><i class="bi bi-check-circle me-1"></i>Stock value {{ kpi.stock_value | money }} at cost</span>
+    {% endcall %}
+  </div>
+  <div class="col">
+    {% call kcard('Sufficient Stock', kpi.sufficient or 0, 'bi-clipboard2-check', 'SKUs') %}
+      <span class="tw-text-brand-700"><i class="bi bi-graph-up-arrow me-1"></i>{{ '%.1f' | format((kpi.sufficient or 0) / total * 100 if total else 0) }}% availability rate</span>
+    {% endcall %}
+  </div>
+  <div class="col">
+    {% call kcard('Low Stock Warning', kpi.low or 0, 'bi-exclamation-lg', 'below reorder', 'warn') %}
+      <a class="tw-text-amber-800" href="{{ url_for('alerts.index', tab='stock') }}"><i class="bi bi-exclamation-triangle me-1"></i>Needs PO dispatch</a>
+    {% endcall %}
+  </div>
+  <div class="col">
+    {% call kcard('Expiring & Expired', kpi.expiring or 0, 'bi-calendar-x', 'batches', 'danger') %}
+      <a class="text-danger" href="{{ url_for('alerts.index', tab='expiry') }}"><i class="bi bi-calendar2-week me-1"></i>Within 30 days or past date</a>
+    {% endcall %}
+  </div>
+</div>
+
+<form class="card-pc mb-4 no-print" method="get" data-autosubmit>
+  <div class="card-head">
+    <i class="bi bi-sliders tw-text-brand-700"></i><h3 class="tw-text-sm me-auto">Parameterized Search &amp; Filter Controls</h3>
+    <span class="pill pill-mint no-dot">Showing {{ rows | length }} of {{ page.total }}</span>
+  </div>
+  <div class="card-body-pc">
+    <div class="row g-3 align-items-end">
+      <div class="col-lg-4">
+        <label class="form-label caps" for="f_q">Search drug / SKU</label>
+        <div class="input-icon"><i class="bi bi-search"></i>
+          <input class="form-control" id="f_q" name="q" value="{{ f.q }}" placeholder="e.g. Amoxil, AMO-101, Atorvastatin">
+        </div>
+      </div>
+      <div class="col-sm-6 col-lg-2">
+        <label class="form-label caps" for="f_cat">Category</label>
+        <select class="form-select" id="f_cat" name="category">
+          <option value="">All categories</option>
+          {% for c in categories %}<option value="{{ c.category_id }}" {{ 'selected' if f.category == c.category_id }}>{{ c.category_name }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-sm-6 col-lg-2">
+        <label class="form-label caps" for="f_stock">Stock status</label>
+        <select class="form-select" id="f_stock" name="stock">
+          {% for v, l in [('', 'All stock levels'), ('ok', 'Sufficient'), ('low', 'Low stock'), ('out', 'Out of stock')] %}
+            <option value="{{ v }}" {{ 'selected' if f.stock == v }}>{{ l }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-sm-6 col-lg-2">
+        <label class="form-label caps" for="f_exp">Expiry horizon</label>
+        <select class="form-select" id="f_exp" name="expiry">
+          {% for v, l in [('', 'All expiry windows'), ('soon', 'Within 30 days'), ('expired', 'Expired'), ('valid', 'Valid > 30 days')] %}
+            <option value="{{ v }}" {{ 'selected' if f.expiry == v }}>{{ l }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-sm-6 col-lg-2">
+        <label class="form-label caps" for="f_sort">Sort by</label>
+        <select class="form-select" id="f_sort" name="sort">
+          {% for v, l in [('name', 'Name (A-Z)'), ('stock_asc', 'Stock: low first'), ('stock_desc', 'Stock: high first'), ('expiry', 'Expiry: soonest'), ('price_desc', 'Price: high first'), ('newest', 'Newest added')] %}
+            <option value="{{ v }}" {{ 'selected' if f.sort == v }}>{{ l }}</option>{% endfor %}
+        </select>
+      </div>
+    </div>
+    <div class="d-flex gap-2 mt-3">
+      <button class="btn btn-brand btn-sm" type="submit"><i class="bi bi-funnel me-1"></i>Apply</button>
+      <a class="btn btn-soft btn-sm" href="{{ url_for('medicines.index') }}">Reset</a>
+    </div>
+  </div>
+</form>
+
+<section class="card-pc">
+  <div class="card-head">
+    <h2 class="me-auto">Formulary Records</h2>
+    <span class="tbl-chip">SELECT m.*, c.category_name FROM medicines m JOIN categories c …</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-pc">
+      <thead>
+        <tr>
+          <th>Medicine ID</th><th>Medicine &amp; Formulation</th><th>Category</th><th class="d-none d-xxl-table-cell">Manufacturer</th>
+          <th class="text-end">Price / Cost</th><th style="min-width:150px">Stock Level</th>
+          <th>Batch &amp; Expiry</th><th class="text-end no-print">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for m in rows %}
+        {% set st = stock_status(m) %}
+        {% set d = days_until(m.expiry_date) %}
+        <tr class="{{ 'row-danger' if st in ('expired', 'out') else ('row-warn' if st in ('low', 'expiring')) }}">
+          <td><span class="id-chip {{ 'red' if st in ('expired', 'out') else ('gray' if m.stock_quantity == 0) }}">{{ m.medicine_id | code('medicine') }}</span></td>
+          <td>
+            <a class="cell-title" href="{{ url_for('medicines.detail', medicine_id=m.medicine_id) }}">{{ m.medicine_name }}</a>
+            <div class="cell-sub d-flex flex-wrap align-items-center gap-1">{{ m.generic_name or '—' }}{% if m.dosage_form %} · <span class="form-tag">{{ m.dosage_form }}</span>{% endif %}</div>
+            {% if m.manufacturer %}<div class="cell-sub d-xxl-none">{{ m.manufacturer }}</div>{% endif %}
+          </td>
+          <td><span class="cat-pill">{{ m.category_name }}</span></td>
+          <td class="tw-text-[13px] d-none d-xxl-table-cell">{{ m.manufacturer or '—' }}</td>
+          <td class="text-end">
+            <div class="num fw-bold">{{ m.price | money }}</div>
+            <div class="tw-text-[11px] text-muted-2 num">cost {{ m.cost_price | money }}</div>
+            {% if m.cost_price %}<div class="tw-text-[11px] tw-text-brand-600 fw-semibold">+{{ ((m.price - m.cost_price) / m.cost_price * 100) | round | int }}% margin</div>{% endif %}
+          </td>
+          <td>{{ stock_meter(m.stock_quantity, m.reorder_level) }}<div class="mt-2">{{ stock_pill(st) }}</div></td>
+          <td class="tw-text-[13px]">
+            <div class="{{ 'text-danger fw-bold' if d is not none and d <= 30 }}">{% if d is not none and d <= 30 %}<i class="bi bi-alarm me-1"></i>{% endif %}{{ m.expiry_date | date }}</div>
+            <div class="cell-sub mono">{{ m.batch_no or '—' }}</div>
+          </td>
+          <td class="text-end text-nowrap no-print">
+            <a class="btn-icon" href="{{ url_for('medicines.detail', medicine_id=m.medicine_id) }}" title="View history" aria-label="View"><i class="bi bi-eye"></i></a>
+            <button type="button" class="btn-icon" title="Edit" aria-label="Edit" data-bs-toggle="modal" data-bs-target="#medicineModal"
+                    data-action="{{ url_for('medicines.update', medicine_id=m.medicine_id) }}" data-title="Edit {{ m.medicine_name }}"
+                    data-record='{{ m | tojson }}'><i class="bi bi-pencil-square"></i></button>
+            {{ delete_form(url_for('medicines.delete', medicine_id=m.medicine_id), 'Delete ' ~ m.medicine_name ~ '? This cannot be undone.') }}
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="8">{{ empty('No medicines match these filters.', 'bi-search') }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {{ pager(page, 'medicines') }}
+</section>
+
+<div class="note-box mt-4 d-flex gap-3 align-items-start">
+  <i class="bi bi-diagram-3 tw-text-brand-700 fs-5"></i>
+  <div><b>Foreign key integrity:</b> <code>medicines.category_id → categories.category_id</code> (ON DELETE RESTRICT).
+    Medicines referenced by <code>purchase_items</code> or <code>sale_items</code> cannot be deleted, and a
+    <code>CHECK (stock_quantity &gt;= 0)</code> constraint prevents negative stock.</div>
+</div>
+{% endblock %}

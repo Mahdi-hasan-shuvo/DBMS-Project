@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% from "_macros.html" import kcard, pager, crumbs, empty, payment_pill %}
+{% block title %}Sales History{% endblock %}
+{% block content %}
+{{ crumbs([('Dashboard', url_for('dashboard.index')), ('Sales & Billing', url_for('sales.pos')), ('Sales History & Invoices', none)]) }}
+<div class="page-head">
+  <div>
+    <h1 class="page-title">Sales History &amp; Invoices</h1>
+    <p class="page-sub">Every bill recorded in <span class="tbl-chip">sales</span> with its line items in <span class="tbl-chip">sale_items</span>.</p>
+  </div>
+  <div class="d-flex gap-2 flex-wrap">
+    <div class="seg">
+      <a href="{{ url_for('sales.pos') }}"><i class="bi bi-upc-scan"></i> Active POS Terminal</a>
+      <a class="active" href="{{ url_for('sales.index') }}"><i class="bi bi-receipt"></i> Sales History</a>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3 mb-4 row-cols-1 row-cols-sm-2 row-cols-xl-4">
+  <div class="col">{{ kcard('Matching transactions', summary.txns | num, 'bi-receipt', 'bills') }}</div>
+  <div class="col">{{ kcard('Revenue (filtered)', summary.revenue | money, 'bi-cash-coin', '', 'info') }}</div>
+  <div class="col">{{ kcard('Average ticket', summary.avg_ticket | money, 'bi-basket') }}</div>
+  <div class="col">{{ kcard("Today's revenue", stats.revenue | money, 'bi-calendar-check', '', '', stats.txns ~ ' sales today · discounts given ' ~ (summary.discounts | money)) }}</div>
+</div>
+
+<form class="card-pc mb-4" method="get">
+  <div class="card-body-pc">
+    <div class="row g-3 align-items-end">
+      <div class="col-lg-4">
+        <label class="form-label caps" for="f_q">Search</label>
+        <div class="input-icon"><i class="bi bi-search"></i>
+          <input class="form-control" id="f_q" name="q" value="{{ f.q }}" placeholder="Invoice #, customer or Rx reference">
+        </div>
+      </div>
+      <div class="col-sm-4 col-lg-2">
+        <label class="form-label caps" for="f_method">Payment</label>
+        <select class="form-select" id="f_method" name="method">
+          <option value="">All methods</option>
+          {% for m in payment_methods %}<option {{ 'selected' if f.method == m }}>{{ m }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-sm-4 col-lg-2">
+        <label class="form-label caps" for="f_start">From</label>
+        <input class="form-control" type="date" id="f_start" name="start" value="{{ f.start }}">
+      </div>
+      <div class="col-sm-4 col-lg-2">
+        <label class="form-label caps" for="f_end">To</label>
+        <input class="form-control" type="date" id="f_end" name="end" value="{{ f.end }}">
+      </div>
+      <div class="col-lg-2 d-flex gap-2">
+        <button class="btn btn-brand flex-grow-1" type="submit"><i class="bi bi-funnel me-1"></i>Filter</button>
+        <a class="btn btn-soft" href="{{ url_for('sales.export', **request.args) }}" title="Export CSV" aria-label="Export CSV"><i class="bi bi-download"></i></a>
+      </div>
+    </div>
+  </div>
+</form>
+
+<section class="card-pc">
+  <div class="table-responsive">
+    <table class="table table-pc">
+      <thead><tr><th>Invoice #</th><th>Date &amp; Time</th><th>Customer</th><th class="text-center">Items</th><th class="text-end">Subtotal</th><th class="text-end">Discount</th><th class="text-end">Tax</th><th class="text-end">Total</th><th>Method</th><th class="text-end">Action</th></tr></thead>
+      <tbody>
+      {% for s in rows %}
+        <tr>
+          <td><a class="mono fw-semibold tw-text-[12.5px]" href="{{ url_for('sales.invoice', sale_id=s.sale_id) }}">{{ s.invoice_no }}</a>
+            {% if s.prescription_ref %}<div class="cell-sub mono">{{ s.prescription_ref }}</div>{% endif %}</td>
+          <td>{{ s.sale_date | datetime }}</td>
+          <td>{% if s.customer_id %}<a class="cell-title" href="{{ url_for('customers.detail', customer_id=s.customer_id) }}">{{ s.customer_name }}</a>{% else %}<span class="text-muted-2">Walk-in</span>{% endif %}</td>
+          <td class="text-center">{{ s.line_count }}<div class="cell-sub">{{ s.units }} units</div></td>
+          <td class="text-end num">{{ s.subtotal | money }}</td>
+          <td class="text-end num {{ 'tw-text-brand-700' if s.discount_amount }}">{{ ('-' ~ (s.discount_amount | money)) if s.discount_amount else '—' }}</td>
+          <td class="text-end num">{{ s.tax_amount | money }}</td>
+          <td class="text-end num fw-bold">{{ s.total_amount | money }}</td>
+          <td>{{ payment_pill(s.payment_method) }}</td>
+          <td class="text-end"><a class="btn-icon" href="{{ url_for('sales.invoice', sale_id=s.sale_id) }}" title="View / print invoice" aria-label="View invoice"><i class="bi bi-printer"></i></a></td>
+        </tr>
+      {% else %}
+        <tr><td colspan="10">{{ empty('No sales match these filters.', 'bi-search') }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {{ pager(page, 'transactions') }}
+</section>
+{% endblock %}

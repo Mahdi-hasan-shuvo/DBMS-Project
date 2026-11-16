@@ -1,0 +1,64 @@
+<div class="modal fade" id="customerModal" tabindex="-1" aria-labelledby="customerModalTitle" aria-hidden="true" data-record-modal>
+  <div class="modal-dialog modal-lg">
+    <form class="modal-content" method="post" action="{{ url_for('customers.create') }}" {% if quick_customer %}data-quick-customer{% endif %}>
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title" id="customerModalTitle" data-modal-title>Add Customer</h5>
+          <div class="tw-text-xs text-muted-2 mono">INSERT / UPDATE customers</div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" name="next" value="{{ request.full_path }}">
+        <div class="alert alert-danger d-none py-2" data-form-error></div>
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label" for="cu_name">Full name *</label>
+            <input class="form-control" id="cu_name" name="customer_name" required maxlength="120">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" for="cu_phone">Phone *</label>
+            <input class="form-control" id="cu_phone" name="phone" required maxlength="30" placeholder="+1 (555) 000-0000">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label" for="cu_gender">Gender</label>
+            <select class="form-select" id="cu_gender" name="gender">
+              <option value="">—</option>
+              {% for g in genders %}<option>{{ g }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label" for="cu_dob">Date of birth</label>
+            <input class="form-control" type="date" id="cu_dob" name="date_of_birth">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label" for="cu_type">Classification</label>
+            <select class="form-select" id="cu_type" name="customer_type">
+              {% for t in types %}<option>{{ t }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" for="cu_email">Email</label>
+            <input class="form-control" type="email" id="cu_email" name="email" maxlength="120">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" for="cu_city">City</label>
+            <input class="form-control" id="cu_city" name="city" maxlength="80">
+          </div>
+          <div class="col-12">
+            <label class="form-label" for="cu_addr">Address</label>
+            <input class="form-control" id="cu_addr" name="address" maxlength="255">
+          </div>
+          <div class="col-12">
+            <label class="form-label" for="cu_allergy">Known allergies <span class="text-muted-2 fw-normal">(shown as a warning at the POS)</span></label>
+            <input class="form-control" id="cu_allergy" name="allergies" maxlength="255" placeholder="e.g. Penicillin">
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-soft" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-brand"><i class="bi bi-check2-circle me-1"></i> Save Customer</button>
+      </div>
+    </form>
+  </div>
+</div>
