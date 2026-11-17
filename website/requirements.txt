@@ -1,3 +1,7 @@
 Flask>=3.0,<4
 PyMySQL>=1.1,<2
 pytest>=8
+Flask<4,>=3.0
+PyMySQL<2,>=1.1
+pytest>=8
+gunicorn
